@@ -1,7 +1,7 @@
 import axios from "axios";
 
-// API base URL
-const API_URL = import.meta.env.VITE_API_URL || "https://healthcare-w8iz.onrender.com/api";
+const API_URL =
+  import.meta.env.VITE_API_URL || "https://healthcare-w8iz.onrender.com/api";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -11,7 +11,7 @@ const api = axios.create({
   timeout: 15000,
 });
 
-// Request interceptor (attach JWT)
+// Attach JWT token automatically
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("accessToken");
@@ -28,7 +28,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor (handle 401)
+// Handle unauthorized errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
