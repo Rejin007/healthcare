@@ -19,19 +19,29 @@ dotenv.config();
 const app: Application = express();
 const PORT = process.env.PORT || 5000;
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : []),
-];
-
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. curl, Postman, server-to-server)
+    // Allow requests with no origin (curl, Postman, server-to-server like Vercel proxy)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+
+    const allowedPatterns = [
+      /^http:\/\/localhost(:\d+)?$/,
+      /\.vercel\.app$/,
+      /\.onrender\.com$/,
+    ];
+
+    // Also allow any explicit origins from env
+    const explicitOrigins = process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+      : [];
+
+    if (
+      allowedPatterns.some(pattern => pattern.test(origin)) ||
+      explicitOrigins.includes(origin)
+    ) {
       return callback(null, true);
     }
+
     return callback(new Error(`CORS: origin '${origin}' not allowed`));
   },
   credentials: true,
