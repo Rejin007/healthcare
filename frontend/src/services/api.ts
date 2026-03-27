@@ -20,6 +20,10 @@ api.interceptors.request.use(
         Authorization: `Bearer ${token}`,
       };
     }
+    // Log outgoing request body so you can verify fields in browser DevTools Console
+    if (config.method === "post" || config.method === "put") {
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, config.data);
+    }
     return config;
   },
   (error) => Promise.reject(error)

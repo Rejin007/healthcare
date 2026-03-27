@@ -11,5 +11,7 @@ router.get('/available-slots', appointmentController.getAvailableSlots);
 router.get('/:id', appointmentController.getAppointmentById);
 router.post('/', appointmentController.createAppointment);
 router.put('/:id/status', appointmentController.updateAppointmentStatus);
+router.put('/:id/meet-link', appointmentController.updateMeetLink);
+router.post('/:id/resend-meet-link', appointmentController.resendMeetLink);
 
 export default router;

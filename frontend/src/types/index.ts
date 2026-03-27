@@ -20,8 +20,11 @@ export interface Expert {
   phone?: string;
   email?: string;
   total_appointments?: number;
+  specializations?: string[];
   availability?: ExpertAvailability[];
   pricing?: ExpertPricing[];
+  online_price?: number;
+  inperson_price?: number;
 }
 
 export interface Patient {
@@ -82,6 +85,12 @@ export interface ExpertPricing {
   expert_id?: string;
   mode: string;
   price: number;
+}
+
+export interface TimeSlot {
+  time: string;
+  label: string;
+  available: boolean;
 }
 
 export interface AuthContextType {

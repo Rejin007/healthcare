@@ -11,6 +11,9 @@ router.post('/verify', paymentController.verifyPayment);
 router.use(authenticateToken);
 router.get('/', paymentController.getAllPayments);
 router.get('/stats', paymentController.getPaymentStats);
+router.get('/links', paymentController.getPaymentLinks);
+router.post('/links/generate', paymentController.generatePaymentLink);
+router.post('/links/:id/resend', paymentController.resendPaymentLink);
 router.get('/:id', paymentController.getPaymentById);
 router.put('/:id/status', paymentController.updatePaymentStatus);
 

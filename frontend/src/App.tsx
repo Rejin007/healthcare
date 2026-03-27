@@ -15,6 +15,7 @@ import Analytics from './pages/Analytics';
 import Reports from './pages/Reports';
 import SettingsPage from './pages/Settings';
 import Notifications from './pages/Notifications';
+import PatientDashboard from './pages/PatientDashboard';
 
 // Auth Context
 interface AuthContextType {
@@ -245,10 +246,24 @@ function AppLayout() {
   );
 }
 
-// Protected route wrapper
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
+// Helper — patients have no role_name, admins/experts do
+function isPatientUser(user: any) {
+  return user && !user.role_name;
+}
+
+// Blocks patients from admin area → sends them to /patient
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { token, user } = useAuth();
   if (!token) return <Navigate to="/login" replace />;
+  if (isPatientUser(user)) return <Navigate to="/patient" replace />;
+  return <>{children}</>;
+}
+
+// Blocks admins from patient area → sends them to /
+function PatientRoute({ children }: { children: React.ReactNode }) {
+  const { token, user } = useAuth();
+  if (!token) return <Navigate to="/login" replace />;
+  if (!isPatientUser(user)) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -274,20 +289,39 @@ function App() {
     localStorage.removeItem('user');
   };
 
+  // After login, redirect based on role
+  const getHomeRedirect = () => {
+    if (!token) return '/login';
+    return isPatientUser(user) ? '/patient' : '/';
+  };
+
   return (
     <AuthContext.Provider value={{ user, token, login, logout }}>
       <Router>
         <Routes>
+          {/* Login — redirect to correct dashboard if already logged in */}
           <Route
             path="/login"
-            element={token ? <Navigate to="/" replace /> : <Login onLogin={login} />}
+            element={token ? <Navigate to={getHomeRedirect()} replace /> : <Login onLogin={login} />}
           />
+
+          {/* Patient dashboard — patients only */}
+          <Route
+            path="/patient"
+            element={
+              <PatientRoute>
+                <PatientDashboard />
+              </PatientRoute>
+            }
+          />
+
+          {/* Admin dashboard — admins/experts only */}
           <Route
             path="/*"
             element={
-              <ProtectedRoute>
+              <AdminRoute>
                 <AppLayout />
-              </ProtectedRoute>
+              </AdminRoute>
             }
           />
         </Routes>

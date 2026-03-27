@@ -13,25 +13,21 @@ export const getAnalytics = async (req: AuthRequest, res: Response): Promise<voi
 
     const summary = await pool.query(`
       SELECT
-        COUNT(DISTINCT u.id) FILTER (WHERE u.created_at >= NOW() - INTERVAL '${interval}') as new_patients,
-        COUNT(DISTINCT a.id) FILTER (WHERE a.created_at >= NOW() - INTERVAL '${interval}') as total_appointments,
-        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'completed' AND p.created_at >= NOW() - INTERVAL '${interval}'), 0) as total_revenue,
-        COUNT(DISTINCT e.id) FILTER (WHERE e.created_at >= NOW() - INTERVAL '${interval}') as new_experts
-      FROM users u
-      FULL OUTER JOIN appointments a ON true
-      FULL OUTER JOIN payments p ON true
-      FULL OUTER JOIN experts e ON true
+        (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '${interval}') as new_patients,
+        (SELECT COUNT(*) FROM appointments WHERE created_at >= NOW() - INTERVAL '${interval}') as total_appointments,
+        (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'completed' AND created_at >= NOW() - INTERVAL '${interval}') as total_revenue,
+        (SELECT COUNT(*) FROM experts WHERE created_at >= NOW() - INTERVAL '${interval}') as new_experts
     `);
 
     const daily = await pool.query(`
       SELECT
-        DATE(a.created_at) as date,
+        DATE(gs.day) as date,
         COUNT(DISTINCT u.id) as new_patients,
-        COUNT(a.id) as appointments
+        COUNT(DISTINCT a.id) as appointments
       FROM generate_series(NOW() - INTERVAL '${interval}', NOW(), '1 day') as gs(day)
       LEFT JOIN appointments a ON DATE(a.created_at) = DATE(gs.day)
       LEFT JOIN users u ON DATE(u.created_at) = DATE(gs.day)
-      GROUP BY DATE(a.created_at)
+      GROUP BY DATE(gs.day)
       ORDER BY date DESC
       LIMIT 30
     `);

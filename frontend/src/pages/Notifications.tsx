@@ -44,8 +44,7 @@ const Notifications: React.FC = () => {
 
   const markAllAsRead = async () => {
     try {
-      const unreadNotifs = notifications.filter(n => !n.read_at);
-      await Promise.all(unreadNotifs.map(n => axios.put(`/notifications/${n.id}/read`)));
+      await api.put('/notifications/mark-all-read');
       loadNotifications();
     } catch (error) {
       console.error('Failed to mark all as read:', error);
@@ -207,7 +206,7 @@ const Notifications: React.FC = () => {
                       </span>
                       <span>{new Date(notification.created_at).toLocaleString()}</span>
                       {notification.read_at && (
-                        <span className="text-green-400">✓ Read</span>
+                        <span className="text-green-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Read</span>
                       )}
                     </div>
                   </div>

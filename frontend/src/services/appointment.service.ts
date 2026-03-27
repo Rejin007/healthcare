@@ -21,5 +21,9 @@ export const appointmentService = {
   getAvailableSlots: async (expertId: string, date: string) => {
     const response = await api.get(`/appointments/available-slots?expert_id=${expertId}&date=${date}`);
     return response.data;
+  },
+  updateMeetLink: async (id: string, meet_link: string) => {
+    const response = await api.put(`/appointments/${id}/meet-link`, { meet_link });
+    return response.data;
   }
 };

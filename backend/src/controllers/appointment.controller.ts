@@ -1,15 +1,35 @@
 import { Request, Response } from 'express';
 import pool from '../config/database';
+
+// ── SMS helper (reuses Twilio config from otp.service) ───────────────────────
+async function sendSMS(phone: string, message: string): Promise<void> {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[DEV SMS] → ${phone}: ${message}`);
+    return;
+  }
+  try {
+    const sid   = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const from  = process.env.TWILIO_PHONE_NUMBER;
+    if (!sid || !token || !from) { console.warn('[SMS] Twilio not configured'); return; }
+    const twilio = require('twilio')(sid, token);
+    await twilio.messages.create({ body: message, from, to: phone });
+    console.log(`[SMS] Sent to ${phone}`);
+  } catch (err) {
+    console.error('[SMS] Error:', err);
+  }
+}
 import { AuthRequest } from '../middleware/auth.middleware';
 
 export const getAllAppointments = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { page = 1, limit = 10, status, expert_id, user_id, date } = req.query;
+    const { page = 1, limit = 10, status, expert_id, user_id, date, upcoming } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
     let query = `
       SELECT 
         a.id, a.start_time, a.end_time, a.mode, a.status, a.created_at,
+        a.google_meet_link,
         u.full_name as patient_name, u.phone as patient_phone,
         au.full_name as expert_name,
         p.amount, p.status as payment_status
@@ -28,6 +48,11 @@ export const getAllAppointments = async (req: AuthRequest, res: Response): Promi
       query += ` AND a.status = $${paramCount}`;
       params.push(status);
       paramCount++;
+    }
+
+    // upcoming=true → only future appointments
+    if (upcoming === 'true') {
+      query += ` AND a.start_time >= NOW()`;
     }
 
     if (expert_id) {
@@ -53,7 +78,6 @@ export const getAllAppointments = async (req: AuthRequest, res: Response): Promi
 
     const result = await pool.query(query, params);
 
-    // Fixed: count query should respect filters
     let countQuery = `
       SELECT COUNT(*) as total 
       FROM appointments a
@@ -66,6 +90,9 @@ export const getAllAppointments = async (req: AuthRequest, res: Response): Promi
       countQuery += ` AND a.status = $${countParamCount}`;
       countParams.push(status);
       countParamCount++;
+    }
+    if (upcoming === 'true') {
+      countQuery += ` AND a.start_time >= NOW()`;
     }
     if (expert_id) {
       countQuery += ` AND a.expert_id = $${countParamCount}`;
@@ -139,7 +166,7 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
   try {
     await client.query('BEGIN');
 
-    const { user_id, expert_id, mode, start_time, duration = 30 } = req.body;
+    const { user_id, expert_id, mode, start_time, duration = 30, meet_link } = req.body;
 
     if (!user_id || !expert_id || !mode || !start_time) {
       await client.query('ROLLBACK');
@@ -176,6 +203,24 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
     const startTime = new Date(start_time);
     const endTime = new Date(startTime.getTime() + Number(duration) * 60000);
 
+    // Prevent patient from booking more than one appointment per day
+    const sameDayCheck = await client.query(
+      `SELECT id FROM appointments
+       WHERE user_id = $1
+       AND DATE(start_time) = DATE($2::timestamptz)
+       AND status NOT IN ('cancelled', 'no-show')`,
+      [user_id, startTime.toISOString()]
+    );
+
+    if (sameDayCheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      res.status(409).json({
+        success: false,
+        message: 'Patient already has an appointment on this day. Only one appointment per day is allowed.'
+      });
+      return;
+    }
+
     // Check for scheduling conflicts
     const conflictCheck = await client.query(
       `SELECT id FROM appointments
@@ -209,13 +254,60 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
     // Create appointment
     const appointmentResult = await client.query(
       `INSERT INTO appointments (
-        user_id, expert_id, mode, start_time, end_time, status, created_by
-      ) VALUES ($1, $2, $3, $4, $5, 'scheduled', $6)
+        user_id, expert_id, mode, start_time, end_time, status, created_by, google_meet_link
+      ) VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7)
       RETURNING *`,
-      [user_id, expert_id, mode, startTime, endTime, req.user?.type || 'admin']
+      [user_id, expert_id, mode, startTime, endTime, req.user?.type || 'admin', meet_link || null]
     );
 
     const appointment = appointmentResult.rows[0];
+
+    // For online appointments: use provided link or auto-generate a Jitsi Meet room
+    if (mode === 'online') {
+      const shortId = appointment.id.replace(/-/g, '').slice(0, 12);
+      const finalLink = meet_link || `https://meet.jit.si/nila-${shortId}`;
+
+      // Save to appointments.google_meet_link
+      await client.query(
+        'UPDATE appointments SET google_meet_link = $1 WHERE id = $2',
+        [finalLink, appointment.id]
+      );
+      // Also save to google_meet_links table
+      await client.query(
+        'INSERT INTO google_meet_links (appointment_id, meet_url) VALUES ($1, $2)',
+        [appointment.id, finalLink]
+      );
+      appointment.google_meet_link = finalLink;
+    }
+
+    // Fetch patient phone for SMS notification
+    const patientRow = await client.query(
+      'SELECT phone, full_name FROM users WHERE id = $1',
+      [user_id]
+    );
+    const patient = patientRow.rows[0];
+
+    if (patient) {
+      // Format appointment date/time for message
+      const apptDate = startTime.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+      const apptTime = startTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      let smsBody = `Hi ${patient.full_name || 'Patient'}, your appointment is confirmed for ${apptDate} at ${apptTime}.`;
+      if (meet_link && mode === 'online') {
+        smsBody += ` Join here: ${meet_link}`;
+      }
+      smsBody += ` - Nila Healthcare`;
+
+      // Send SMS (non-blocking — don't fail the booking if SMS fails)
+      sendSMS(patient.phone, smsBody).catch(console.error);
+
+      // Save notification record to DB
+      await client.query(
+        `INSERT INTO notifications (user_id, type, channel, message)
+         VALUES ($1, 'appointment_confirmed', 'sms', $2)`,
+        [user_id, smsBody]
+      );
+    }
 
     // Create payment record
     const paymentResult = await client.query(
@@ -338,5 +430,87 @@ export const getAvailableSlots = async (req: Request, res: Response): Promise<vo
   } catch (error) {
     console.error('Get available slots error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch available slots' });
+  }
+};
+
+// ── Resend meet link SMS to patient ──────────────────────────────────────────
+export const updateMeetLink = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { meet_link } = req.body;
+
+    if (!meet_link) {
+      res.status(400).json({ success: false, message: 'meet_link is required' });
+      return;
+    }
+
+    // Update appointments table
+    const result = await pool.query(
+      'UPDATE appointments SET google_meet_link = $1 WHERE id = $2 AND mode = $3 RETURNING id',
+      [meet_link, id, 'online']
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ success: false, message: 'Online appointment not found' });
+      return;
+    }
+
+    // Update google_meet_links table (delete existing + insert new)
+    await pool.query('DELETE FROM google_meet_links WHERE appointment_id = $1', [id]);
+    await pool.query(
+      'INSERT INTO google_meet_links (appointment_id, meet_url) VALUES ($1, $2)',
+      [id, meet_link]
+    );
+
+    res.status(200).json({ success: true, message: 'Meet link updated', data: { meet_link } });
+  } catch (error: any) {
+    console.error('updateMeetLink error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update meet link' });
+  }
+};
+
+
+export const resendMeetLink = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT a.id, a.google_meet_link, a.start_time, a.mode,
+              u.phone, u.full_name
+       FROM appointments a
+       JOIN users u ON a.user_id = u.id
+       WHERE a.id = $1`,
+      [id]
+    );
+
+    if (!result.rows.length) {
+      res.status(404).json({ success: false, message: 'Appointment not found' }); return;
+    }
+
+    const appt = result.rows[0];
+
+    if (appt.mode !== 'online') {
+      res.status(400).json({ success: false, message: 'Not an online appointment' }); return;
+    }
+    if (!appt.google_meet_link) {
+      res.status(400).json({ success: false, message: 'No meet link set for this appointment' }); return;
+    }
+
+    const apptDate = new Date(appt.start_time).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+    const apptTime = new Date(appt.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const msg = `Hi ${appt.full_name || 'Patient'}, your online appointment on ${apptDate} at ${apptTime} — Join here: ${appt.google_meet_link} - Nila Healthcare`;
+
+    await sendSMS(appt.phone, msg);
+
+    await pool.query(
+      `INSERT INTO notifications (user_id, type, channel, message)
+       SELECT user_id, 'meet_link_resent', 'sms', $1 FROM appointments WHERE id = $2`,
+      [msg, id]
+    );
+
+    res.json({ success: true, message: 'Meet link sent to patient via SMS' });
+  } catch (error) {
+    console.error('resendMeetLink error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send meet link' });
   }
 };

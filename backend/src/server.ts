@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { connectDatabase } from './config/database';
+import { cleanupExpiredOTPs } from './services/otp.service';
 import authRoutes from './routes/auth.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import patientRoutes from './routes/patient.routes';
@@ -91,23 +92,37 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   });
 });
 
-const startServer = async () => {
-  try {
-    await connectDatabase();
-    app.listen(PORT, () => {
-      console.log('=================================');
-      console.log(` Server running on port ${PORT}`);
-      console.log(` Environment: ${process.env.NODE_ENV}`);
-      console.log(` API: http://localhost:${PORT}/api`);
-      console.log(`  Health: http://localhost:${PORT}/health`);
-      console.log('=================================');
-    });
-  } catch (error) {
-    console.error(' Server startup error:', error);
-    process.exit(1);
-  }
+const startServer = async (port: number = Number(PORT)) => {
+  await connectDatabase();
+
+  const server = app.listen(port, () => {
+    console.log('=================================');
+    console.log(` Server running on port ${port}`);
+    console.log(`   Environment: ${process.env.NODE_ENV}`);
+    console.log(`   API: http://localhost:${port}/api`);
+    console.log(`   Health: http://localhost:${port}/health`);
+    console.log('=================================');
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`  Port ${port} is busy, trying port ${port + 1}...`);
+      server.close();
+      startServer(port + 1);
+    } else {
+      console.error('Server error:', err);
+    }
+  });
 };
 
 startServer();
+
+// ── OTP cleanup scheduler — runs every 5 minutes ─────────────────────────────
+setInterval(async () => {
+  await cleanupExpiredOTPs();
+}, 5 * 60 * 1000);
+
+// Run once on startup to clear any leftover expired OTPs
+cleanupExpiredOTPs();
 
 export default app;
