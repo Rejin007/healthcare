@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Activity, Lock, Mail, Eye, EyeOff, AlertCircle,
-  ShieldCheck, ArrowRight, RotateCcw, User, Phone,
+  ShieldCheck, ArrowRight, RotateCcw, User, Phone, Cookie,
 } from 'lucide-react';
 import { authService } from '../services/auth.service';
 
@@ -12,11 +12,48 @@ interface LoginProps {
 type LoginMode = 'admin' | 'patient';
 type OtpStep  = 'phone' | 'otp';
 
+// ── Cookie helpers ─────────────────────────────────────────────────────────────
+const setCookie = (name: string, value: string, days: number) => {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Strict`;
+};
+
+const getCookie = (name: string): string | null => {
+  const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
+const deleteCookie = (name: string) => {
+  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+};
+
+const saveSession = (token: string, user: any, remember: boolean) => {
+  if (remember) {
+    // Persist for 30 days via cookie
+    setCookie('nila_token', token, 30);
+    setCookie('nila_user', JSON.stringify(user), 30);
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('user');
+  } else {
+    // Session only — localStorage cleared when tab closes via sessionStorage
+    sessionStorage.setItem('accessToken', token);
+    sessionStorage.setItem('user', JSON.stringify(user));
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('user');
+    deleteCookie('nila_token');
+    deleteCookie('nila_user');
+  }
+  // Always keep localStorage copy for api.ts compatibility
+  localStorage.setItem('accessToken', token);
+  localStorage.setItem('user', JSON.stringify(user));
+};
+
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [mode, setMode]                 = useState<LoginMode>('admin');
   const [email, setEmail]               = useState('');
   const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe]     = useState(() => getCookie('nila_remember') === '1');
   const [phone, setPhone]               = useState('');
   const [otpStep, setOtpStep]           = useState<OtpStep>('phone');
   const [otpDigits, setOtpDigits]       = useState(['', '', '', '', '', '']);
@@ -25,6 +62,22 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
   const inputRefs                       = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Restore remembered email on mount
+  useEffect(() => {
+    const savedEmail = getCookie('nila_email');
+    if (savedEmail) setEmail(savedEmail);
+  }, []);
+
+  // Persist remember-me preference
+  useEffect(() => {
+    if (rememberMe) {
+      setCookie('nila_remember', '1', 30);
+    } else {
+      deleteCookie('nila_remember');
+      deleteCookie('nila_email');
+    }
+  }, [rememberMe]);
 
   const switchMode = (m: LoginMode) => {
     setMode(m); setError(''); setEmail(''); setPassword('');
@@ -39,7 +92,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     return () => clearTimeout(t);
   }, [resendTimer]);
 
-  // FIX: Auto-submit when all 6 digits are filled
+  // Auto-submit when all 6 digits filled
   useEffect(() => {
     if (otpStep === 'otp' && otpDigits.join('').length === 6 && !loading) {
       handleVerifyOtp();
@@ -52,15 +105,15 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  // ── Admin login ────────────────────────────────────────────────────────────
+  // ── Admin login ──────────────────────────────────────────────────────────────
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(''); setLoading(true);
     try {
       const res = await authService.adminLogin(email, password);
       if (res.success) {
-        localStorage.setItem('accessToken', res.data.accessToken);
-        localStorage.setItem('user', JSON.stringify(res.data.user));
+        if (rememberMe) setCookie('nila_email', email, 30);
+        saveSession(res.data.accessToken, res.data.user, rememberMe);
         onLogin(res.data.accessToken, res.data.user);
       }
     } catch (err: any) {
@@ -70,21 +123,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
-  // ── Send / resend OTP ──────────────────────────────────────────────────────
-  // FIX: Always send with +91 prefix so the backend phone-variant lookup
-  //      reliably matches the stored +91XXXXXXXXXX format.
+  // ── Send / resend OTP ────────────────────────────────────────────────────────
   const requestOtp = async (rawPhone: string) => {
-    // Build full phone — if user typed 10 digits, prepend +91
     const digits = rawPhone.replace(/\D/g, '');
     const fullPhone = digits.length === 10 ? `+91${digits}` : rawPhone.trim();
-
     const res = await authService.generateOTP(fullPhone);
     if (res.success) {
       setResendTimer(120);
       setOtpDigits(['','','','','','']);
       setDevOtp('');
       if (res.data?.otp) setDevOtp(String(res.data.otp));
-      // FIX: Focus first OTP box after a short delay to let the DOM update
       setTimeout(() => inputRefs.current[0]?.focus(), 50);
     }
     return res;
@@ -104,27 +152,23 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
-  // ── Verify OTP ─────────────────────────────────────────────────────────────
-  // FIX: Send the same normalised phone that was used to request the OTP
-  //      so the backend findUserByPhone lookup is consistent.
+  // ── Verify OTP ───────────────────────────────────────────────────────────────
   const handleVerifyOtp = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const fullOtp = otpDigits.join('');
     if (fullOtp.length !== 6) { setError('Enter the 6-digit OTP'); return; }
-    if (loading) return; // FIX: guard against double-submit from auto-submit effect
+    if (loading) return;
     setError(''); setLoading(true);
     try {
       const digits = phone.replace(/\D/g, '');
       const fullPhone = digits.length === 10 ? `+91${digits}` : phone.trim();
       const res = await authService.verifyOTP(fullPhone, fullOtp);
       if (res.success) {
-        localStorage.setItem('accessToken', res.data.accessToken);
-        localStorage.setItem('user', JSON.stringify(res.data.user));
+        saveSession(res.data.accessToken, res.data.user, rememberMe);
         onLogin(res.data.accessToken, res.data.user);
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid or expired OTP.');
-      // FIX: Clear OTP boxes on wrong code so user can re-enter cleanly
       setOtpDigits(['','','','','','']);
       setTimeout(() => inputRefs.current[0]?.focus(), 50);
     } finally {
@@ -132,7 +176,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
-  // ── OTP box handlers ───────────────────────────────────────────────────────
+  // ── OTP box handlers ─────────────────────────────────────────────────────────
   const handleOtpDigit = (index: number, value: string) => {
     if (!/^\d?$/.test(value)) return;
     const next = [...otpDigits];
@@ -155,7 +199,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
-  // ── Styles ─────────────────────────────────────────────────────────────────
+  // ── Styles ───────────────────────────────────────────────────────────────────
   const inputBase = `w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-3.5 text-white
     placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/60
     transition-all duration-200 text-sm`;
@@ -163,6 +207,44 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const primaryBtn = `w-full py-3.5 font-semibold rounded-xl transition-all duration-200
     flex items-center justify-center gap-2 text-sm
     disabled:opacity-50 disabled:cursor-not-allowed`;
+
+  // ── Remember Me checkbox ─────────────────────────────────────────────────────
+  const RememberMeRow = () => (
+    <div className="flex items-center justify-between">
+      <label className="flex items-center gap-2.5 cursor-pointer group select-none">
+        <div className="relative">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={e => setRememberMe(e.target.checked)}
+            className="sr-only"
+          />
+          <div className={`w-4.5 h-4.5 w-[18px] h-[18px] rounded-md border-2 flex items-center justify-center transition-all duration-200 ${
+            rememberMe
+              ? 'border-cyan-500 bg-cyan-500/20'
+              : 'border-white/20 bg-white/5 group-hover:border-white/40'
+          }`}>
+            {rememberMe && (
+              <svg className="w-2.5 h-2.5 text-cyan-400" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
+              </svg>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Cookie className="w-3 h-3 text-white/30 group-hover:text-white/50 transition-colors" />
+          <span className="text-xs text-white/40 group-hover:text-white/60 transition-colors">
+            Remember me ...
+          </span>
+        </div>
+      </label>
+      {rememberMe && (
+        <span className="text-[10px] text-cyan-500/70 font-medium tracking-wide">
+           Cookie saved
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
@@ -274,6 +356,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   </div>
                 </div>
 
+                {/* Remember Me */}
+                <RememberMeRow />
+
                 <button type="submit" disabled={loading} className={`${primaryBtn} mt-2`}
                   style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', boxShadow: '0 4px 20px rgba(124,58,237,0.4)' }}>
                   {loading
@@ -308,6 +393,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                       </div>
                     </div>
 
+                    {/* Remember Me */}
+                    <RememberMeRow />
+
                     <button type="submit" disabled={loading || phone.length < 10} className={primaryBtn}
                       style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', boxShadow: '0 4px 20px rgba(6,182,212,0.4)' }}>
                       {loading
@@ -332,7 +420,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                         <RotateCcw className="w-3 h-3" /> Change number
                       </button>
 
-                      {/* Dev OTP — only shown when SMS unavailable */}
+                      {/* Dev OTP */}
                       {devOtp && (
                         <div className="flex items-center justify-between rounded-xl px-4 py-3 mb-5"
                              style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
@@ -340,7 +428,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                             <p className="text-xs text-amber-400/70 font-medium uppercase tracking-wider mb-0.5">OTP (SMS unavailable)</p>
                             <p className="text-xl font-bold text-amber-300 tracking-[0.35em] font-mono">{devOtp}</p>
                           </div>
-                          {/* FIX: clicking the dev OTP copies it into the boxes automatically */}
                           <button type="button"
                             onClick={() => {
                               setOtpDigits(devOtp.split(''));
@@ -380,7 +467,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                         : <><ShieldCheck className="w-4 h-4" />Verify & Sign In</>}
                     </button>
 
-                    {/* Resend — 2 min cooldown */}
+                    {/* Resend */}
                     <div className="text-center">
                       {resendTimer > 0 ? (
                         <p className="text-xs text-white/30">
@@ -409,8 +496,19 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               </>
             )}
 
+            {/* Cookie info banner */}
+            <div className="mt-5 rounded-xl p-3 flex items-start gap-2.5"
+                 style={{ background: 'rgba(6,182,212,0.04)', border: '1px solid rgba(6,182,212,0.1)' }}>
+              <Cookie className="w-3.5 h-3.5 text-cyan-500/50 flex-shrink-0 mt-0.5" />
+              <p className="text-[11px] text-white/25 leading-relaxed">
+                {rememberMe
+                  ? 'Your session will be saved as a cookie for 30 days. Uncheck "Remember me" to use session-only login.'
+                  : 'Session-only mode — you\'ll be logged out when the browser tab closes. Check "Remember me" to stay signed in.'}
+              </p>
+            </div>
+
             {/* Footer */}
-            <div className="mt-6 pt-5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="mt-5 pt-5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               <p className="text-xs text-white/25 text-center leading-relaxed">
                 {mode === 'admin'
                   ? 'Admin & Expert access only. Contact your system administrator for access.'
