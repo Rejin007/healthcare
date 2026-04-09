@@ -23,7 +23,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 export const getAllAppointments = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { page = 1, limit = 10, status, expert_id, user_id, date, upcoming } = req.query;
+    const { page = 1, limit = 10, status, statuses, expert_id, user_id, date, upcoming } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
     let query = `
@@ -44,7 +44,16 @@ export const getAllAppointments = async (req: AuthRequest, res: Response): Promi
     const params: any[] = [];
     let paramCount = 1;
 
-    if (status) {
+    // Support comma-separated statuses e.g. statuses=scheduled,confirmed
+    if (statuses) {
+      const statusList = String(statuses).split(',').map(s => s.trim()).filter(Boolean);
+      if (statusList.length > 0) {
+        const placeholders = statusList.map((_, i) => `$${paramCount + i}`).join(', ');
+        query += ` AND a.status IN (${placeholders})`;
+        params.push(...statusList);
+        paramCount += statusList.length;
+      }
+    } else if (status) {
       query += ` AND a.status = $${paramCount}`;
       params.push(status);
       paramCount++;
@@ -86,7 +95,16 @@ export const getAllAppointments = async (req: AuthRequest, res: Response): Promi
     const countParams: any[] = [];
     let countParamCount = 1;
 
-    if (status) {
+    // Mirror the same statuses / status filter used in the main query
+    if (statuses) {
+      const statusList = String(statuses).split(',').map(s => s.trim()).filter(Boolean);
+      if (statusList.length > 0) {
+        const placeholders = statusList.map((_, i) => `$${countParamCount + i}`).join(', ');
+        countQuery += ` AND a.status IN (${placeholders})`;
+        countParams.push(...statusList);
+        countParamCount += statusList.length;
+      }
+    } else if (status) {
       countQuery += ` AND a.status = $${countParamCount}`;
       countParams.push(status);
       countParamCount++;
@@ -400,31 +418,88 @@ export const getAvailableSlots = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const dateObj = new Date(date as string);
+    // Use date string directly to avoid timezone shifts
+    const dateStr = (date as string).slice(0, 10); // YYYY-MM-DD
+    const dateObj = new Date(dateStr + 'T12:00:00'); // noon to avoid DST edge
     const dayOfWeek = dateObj.getDay();
 
-    // Get expert availability
+    // Get expert availability windows for the day
     const availabilityResult = await pool.query(
       `SELECT start_time, end_time, mode FROM expert_availability 
        WHERE expert_id = $1 AND day_of_week = $2`,
       [expert_id, dayOfWeek]
     );
 
-    // Get booked slots
+    // Get booked slots for that date
     const bookedSlotsResult = await pool.query(
       `SELECT start_time, end_time FROM appointments
        WHERE expert_id = $1 
-       AND DATE(start_time) = $2 
+       AND DATE(start_time AT TIME ZONE 'Asia/Kolkata') = $2::date
        AND status NOT IN ('cancelled', 'no-show')
        ORDER BY start_time`,
-      [expert_id, date]
+      [expert_id, dateStr]
     );
+
+    const bookedSlots = bookedSlotsResult.rows;
+    const now = new Date();
+
+    // Helper: check if a generated slot overlaps any booked appointment
+    const isBooked = (slotStart: Date, slotEnd: Date): boolean => {
+      return bookedSlots.some((b: any) => {
+        const bs = new Date(b.start_time);
+        const be = new Date(b.end_time);
+        return slotStart < be && slotEnd > bs;
+      });
+    };
+
+    // Generate 30-minute slots from each availability window
+    const slots: any[] = [];
+
+    for (const window of availabilityResult.rows) {
+      // window.start_time / end_time come back as "HH:MM:SS" from PG TIME columns
+      const [startH, startM] = (window.start_time as string).split(':').map(Number);
+      const [endH, endM]     = (window.end_time   as string).split(':').map(Number);
+
+      // Build Date objects for the window boundaries on the requested date
+      const windowStart = new Date(`${dateStr}T${String(startH).padStart(2,'0')}:${String(startM).padStart(2,'0')}:00`);
+      const windowEnd   = new Date(`${dateStr}T${String(endH).padStart(2,'0')}:${String(endM).padStart(2,'0')}:00`);
+
+      let cursor = new Date(windowStart);
+
+      while (cursor < windowEnd) {
+        const slotStart = new Date(cursor);
+        const slotEnd   = new Date(cursor.getTime() + 30 * 60 * 1000);
+
+        if (slotEnd > windowEnd) break; // don't overflow the window
+
+        const available = !isBooked(slotStart, slotEnd) && slotStart > now;
+
+        const label = slotStart.toLocaleTimeString('en-IN', {
+          hour: '2-digit', minute: '2-digit', hour12: true
+        });
+
+        slots.push({
+          start_time: slotStart.toISOString(),
+          end_time:   slotEnd.toISOString(),
+          label,
+          mode:      window.mode || 'online',
+          available,
+        });
+
+        cursor = slotEnd;
+      }
+    }
+
+    // Sort chronologically
+    slots.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
     res.status(200).json({
       success: true,
       data: {
+        slots,
+        // Keep raw data for reference
         availability: availabilityResult.rows,
-        bookedSlots: bookedSlotsResult.rows
+        bookedSlots,
       }
     });
   } catch (error) {

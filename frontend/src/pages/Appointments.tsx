@@ -292,7 +292,7 @@ const Appointments: React.FC = () => {
       setLoading(true);
       const filters: Record<string, string> = {};
       if (statusFilter === 'upcoming') {
-        filters.status = 'scheduled';
+        filters.statuses = 'scheduled,confirmed';
         filters.upcoming = 'true';
       } else if (statusFilter !== 'all') {
         filters.status = statusFilter;

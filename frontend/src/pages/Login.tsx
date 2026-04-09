@@ -336,7 +336,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                     <input type="email" required value={email}
                       onChange={e => setEmail(e.target.value)}
-                      placeholder="admin@nilahealthcare.com"
+                      placeholder="admin@.com"
                       className={inputBase} />
                   </div>
                 </div>

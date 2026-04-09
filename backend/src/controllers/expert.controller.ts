@@ -100,12 +100,25 @@ export const getAllExperts = async (req: Request, res: Response): Promise<void> 
 
     const result = await pool.query(query, params);
 
-    // Attach specializations and pricing per expert (simple separate queries, no complex aggregation)
-    const experts = await Promise.all(result.rows.map(async (expert: any) => ({
-      ...expert,
-      specializations: await getSpecializationNames(expert.id),
-      pricing: await getPricing(expert.id),
-    })));
+    // Attach specializations, pricing, availability per expert
+    // Also flatten online_price / inperson_price for the booking list UI
+    const experts = await Promise.all(result.rows.map(async (expert: any) => {
+      const pricing     = await getPricing(expert.id);
+      const availResult = await pool.query(
+        'SELECT day_of_week, start_time, end_time, mode FROM expert_availability WHERE expert_id = $1 ORDER BY day_of_week',
+        [expert.id]
+      );
+      const online_price   = pricing.find((p: any) => p.mode === 'online')?.price   ?? null;
+      const inperson_price = pricing.find((p: any) => p.mode === 'inperson')?.price ?? null;
+      return {
+        ...expert,
+        specializations: await getSpecializationNames(expert.id),
+        pricing,
+        availability: availResult.rows,
+        online_price,
+        inperson_price,
+      };
+    }));
 
     let countQuery = `SELECT COUNT(*) AS total FROM experts e LEFT JOIN admin_users au ON e.admin_user_id = au.id WHERE 1=1`;
     const countParams: any[] = [];
@@ -158,13 +171,19 @@ export const getExpertById = async (req: Request, res: Response): Promise<void> 
       [id]
     );
 
+    const pricing = await getPricing(id);
+    const online_price   = pricing.find((p: any) => p.mode === 'online')?.price   ?? null;
+    const inperson_price = pricing.find((p: any) => p.mode === 'inperson')?.price ?? null;
+
     res.status(200).json({
       success: true,
       data: {
         ...result.rows[0],
         specializations: await getSpecializationNames(id),
-        pricing: await getPricing(id),
+        pricing,
         availability: availability.rows,
+        online_price,
+        inperson_price,
       }
     });
   } catch (error) {

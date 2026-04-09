@@ -2,68 +2,89 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Nila Healthcare — Centralized Theme Variables ─────────────────────────── */
+/* All color usage across the project should reference these variables.         */
+:root {
+  /* Backgrounds */
+  --bg-deep:     #070e1a;
+  --bg-surface:  #0d1829;
+  --bg-elevated: #112038;
+  --bg-muted:    #1a2d47;
+
+  /* Borders */
+  --border-faint:  #1e3050;
+  --border-medium: #253d62;
+  --border-accent: rgba(6, 182, 212, 0.25);
+
+  /* Primary — teal/cyan */
+  --primary:       #06b6d4;
+  --primary-light: #22d3ee;
+  --primary-dark:  #0891b2;
+  --primary-glow:  rgba(6, 182, 212, 0.15);
+
+  /* Secondary — violet */
+  --secondary:       #7c3aed;
+  --secondary-light: #8b5cf6;
+  --secondary-glow:  rgba(124, 58, 237, 0.15);
+
+  /* Semantic */
+  --success:       #10b981;
+  --success-glow:  rgba(16, 185, 129, 0.15);
+  --warning:       #f59e0b;
+  --warning-glow:  rgba(245, 158, 11, 0.15);
+  --danger:        #ef4444;
+  --danger-glow:   rgba(239, 68, 68, 0.15);
+  --info:          #3b82f6;
+  --info-glow:     rgba(59, 130, 246, 0.15);
+
+  /* Text */
+  --text-primary:   #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted:     #475569;
+  --text-accent:    #06b6d4;
+}
+
+/* ── Base reset ──────────────────────────────────────────────────────────── */
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
 }
 
 body {
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: 'DM Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background: #070e1a;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ── Utility: hide scrollbar but allow scroll ────────────────────────────── */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
-::-webkit-scrollbar-track {
-  background: #0d1b2e;
+/* ── Line-clamp fallback ─────────────────────────────────────────────────── */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #1e3a5f;
-  border-radius: 3px;
+/* ── Subtle glow animation for booking success ───────────────────────────── */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.2); }
+  50%       { box-shadow: 0 0 40px rgba(16, 185, 129, 0.35); }
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #0ea5e9;
+.glow-success {
+  animation: glow-pulse 2s ease-in-out infinite;
 }
 
-/* Custom animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes pulse-ring {
-  0% { transform: scale(0.8); opacity: 1; }
-  100% { transform: scale(2); opacity: 0; }
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.3s ease-out;
-}
-
-/* Status badge helpers */
-.status-scheduled { @apply bg-blue-500/15 text-blue-400 border border-blue-500/30; }
-.status-confirmed { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/30; }
-.status-in-progress { @apply bg-amber-500/15 text-amber-400 border border-amber-500/30; }
-.status-completed { @apply bg-violet-500/15 text-violet-400 border border-violet-500/30; }
-.status-cancelled { @apply bg-red-500/15 text-red-400 border border-red-500/30; }
-.status-no-show { @apply bg-gray-500/15 text-gray-400 border border-gray-500/30; }
-
-/* Input focus styles */
-.input-dark {
-  @apply w-full bg-slate-900/80 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100
-         placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500
-         transition-all duration-200;
-}
-
-/* Card style */
-.card {
-  @apply bg-slate-900/60 backdrop-blur-sm border border-slate-800/80 rounded-xl;
+/* ── Smooth focus ring ───────────────────────────────────────────────────── */
+input:focus, button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
