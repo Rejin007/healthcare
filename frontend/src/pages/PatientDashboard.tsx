@@ -6,7 +6,7 @@ import {
   IndianRupee, Loader2, Edit3, Save, X, AlertCircle,
   RefreshCw, PlusCircle, ArrowRight, User, Shield,
   Sparkles, Menu, Home, CalendarDays, TrendingUp,
-  Lock, Zap, Star, Heart, Bell, Search
+  Lock, Zap, Star, Heart, Bell, Search, PartyPopper, Hand
 } from 'lucide-react';
 import { appointmentService } from '../services/appointment.service';
 import { useAuth } from '../App';
@@ -53,10 +53,10 @@ interface Appt {
 
 const STATUS: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
   scheduled:     { label: 'Scheduled',   bg: 'rgba(59,130,246,0.1)',  text: '#60a5fa', border: 'rgba(59,130,246,0.25)',  dot: '#3b82f6' },
-  confirmed:     { label: 'Confirmed',   bg: 'rgba(16,185,129,0.1)', text: '#34d399', border: 'rgba(16,185,129,0.25)', dot: '#10b981' },
-  'in-progress': { label: 'In Progress', bg: 'rgba(245,158,11,0.1)', text: '#fbbf24', border: 'rgba(245,158,11,0.25)', dot: '#f59e0b' },
-  completed:     { label: 'Completed',   bg: 'rgba(139,92,246,0.1)', text: '#a78bfa', border: 'rgba(139,92,246,0.25)', dot: '#8b5cf6' },
-  cancelled:     { label: 'Cancelled',   bg: 'rgba(239,68,68,0.1)',  text: '#f87171', border: 'rgba(239,68,68,0.25)',  dot: '#ef4444' },
+  confirmed:     { label: 'Confirmed',   bg: 'rgba(16,185,129,0.1)', text: 'var(--success-light)', border: 'rgba(16,185,129,0.25)', dot: 'var(--success)' },
+  'in-progress': { label: 'In Progress', bg: 'rgba(245,158,11,0.1)', text: '#fbbf24', border: 'rgba(245,158,11,0.25)', dot: 'var(--warning)' },
+  completed:     { label: 'Completed',   bg: 'rgba(139,92,246,0.1)', text: '#a78bfa', border: 'rgba(139,92,246,0.25)', dot: 'var(--secondary-light)' },
+  cancelled:     { label: 'Cancelled',   bg: 'rgba(239,68,68,0.1)',  text: '#f87171', border: 'rgba(239,68,68,0.25)',  dot: 'var(--danger)' },
   'no-show':     { label: 'No Show',     bg: 'rgba(100,116,139,0.1)',text: '#94a3b8', border: 'rgba(100,116,139,0.25)',dot: '#64748b' },
 };
 
@@ -88,6 +88,7 @@ const PatientDashboard: React.FC = () => {
   const [pEmail,  setPEmail]  = useState(user?.email    || '');
   const [saving,  setSaving]  = useState(false);
   const [saveErr, setSaveErr] = useState('');
+  const [newApptId, setNewApptId] = useState<string | null>(null);
 
   /* Scroll detection — same as Home.tsx nav */
   useEffect(() => {
@@ -147,7 +148,13 @@ const PatientDashboard: React.FC = () => {
     return (
       <BookingFlow
         user={user}
-        onBackToDashboard={() => { setView('dashboard'); load(); }}
+        onBackToDashboard={(apptId?: string) => {
+          setView('dashboard');
+          setPanel('appointments');
+          setTab('upcoming');
+          if (apptId) setNewApptId(apptId);
+          load();
+        }}
       />
     );
   }
@@ -159,7 +166,7 @@ const PatientDashboard: React.FC = () => {
   ];
 
   return (
-    <div style={{ backgroundColor: '#07111e', color: '#f1f5f9', fontFamily: "'DM Sans', sans-serif", overflowX: 'hidden', minHeight: '100vh' }}>
+    <div style={{ backgroundColor: 'var(--bg-deep)', color: 'var(--text-primary)', fontFamily: "'DM Sans', sans-serif", overflowX: 'hidden', minHeight: '100vh' }}>
 
       {/* ── Ambient background (matches Home.tsx) ──────────────────── */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
@@ -213,7 +220,7 @@ const PatientDashboard: React.FC = () => {
                 {nl.label}
                 {nl.panel === 'appointments' && upcomingCount != null && upcomingCount > 0 && (
                   <span className="ml-2 text-[10px] font-black px-1.5 py-0.5 rounded-full align-middle"
-                    style={{ background: 'rgba(255,255,255,0.2)', color: panel === nl.panel ? '#fff' : '#22d3ee' }}>
+                    style={{ background: 'rgba(255,255,255,0.2)', color: panel === nl.panel ? '#fff' : 'var(--primary-light)' }}>
                     {upcomingCount}
                   </span>
                 )}
@@ -263,7 +270,7 @@ const PatientDashboard: React.FC = () => {
                 className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all"
                 style={{
                   background: panel === nl.panel ? 'rgba(6,182,212,0.12)' : 'transparent',
-                  color:      panel === nl.panel ? '#22d3ee' : '#64748b',
+                  color:      panel === nl.panel ? 'var(--primary-light)' : '#64748b',
                   border:     `1px solid ${panel === nl.panel ? 'rgba(6,182,212,0.25)' : 'transparent'}`,
                 }}>
                 {nl.label}
@@ -281,7 +288,7 @@ const PatientDashboard: React.FC = () => {
             </button>
             <button onClick={logout}
               className="w-full py-2.5 rounded-xl text-sm font-medium mt-1"
-              style={{ color: '#ef4444', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
+              style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
               Sign Out
             </button>
           </div>
@@ -296,6 +303,34 @@ const PatientDashboard: React.FC = () => {
         {/* ── APPOINTMENTS PANEL ───────────────────────────────────── */}
         {panel === 'appointments' && (
           <>
+            {/* ── Booking confirmed banner (shown right after successful payment) */}
+            {newApptId && (
+              <Reveal>
+                <div className="relative rounded-3xl overflow-hidden px-7 py-5 flex items-center justify-between gap-4"
+                  style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(6,182,212,0.08) 100%)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                      <CheckCircle className="w-5 h-5" style={{ color: 'var(--success)' }} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white flex items-center gap-2">Booking Confirmed! <PartyPopper className="w-4 h-4" style={{ color: 'var(--success)' }} /></p>
+                      <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>
+                        Your appointment is booked &amp; showing below. Booking ID: <span className="font-mono font-semibold" style={{ color: 'var(--success-light)' }}>#{newApptId.slice(0, 8).toUpperCase()}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setNewApptId(null)}
+                    className="p-1.5 rounded-xl transition-colors flex-shrink-0"
+                    style={{ color: '#334155' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#94a3b8'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#334155'}>
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </Reveal>
+            )}
+
             {/* ── Hero welcome banner — same language as Home.tsx CTA section */}
             <Reveal>
               <div className="relative rounded-3xl overflow-hidden px-7 py-8"
@@ -307,12 +342,12 @@ const PatientDashboard: React.FC = () => {
                 <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-3 text-xs font-bold"
-                      style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)', color: '#22d3ee' }}>
+                      style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)', color: 'var(--primary-light)' }}>
                       <Sparkles className="w-3.5 h-3.5" />
                       Welcome back
                     </div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight" style={{ letterSpacing: '-0.025em' }}>
-                      Hi, {user?.full_name?.split(' ')[0] || 'there'} 👋
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight flex items-center gap-3" style={{ letterSpacing: '-0.025em' }}>
+                      Hi, {user?.full_name?.split(' ')[0] || 'there'} <Hand className="w-7 h-7" style={{ color: '#fbbf24' }} />
                     </h1>
                     <p className="text-sm mt-2" style={{ color: '#64748b' }}>
                       {upcomingCount
@@ -334,9 +369,9 @@ const PatientDashboard: React.FC = () => {
             {/* ── Stats row — same card pattern as Home.tsx stats strip */}
             <div className="grid grid-cols-3 gap-4">
               {[
-                { label: 'Total',     value: allCount,       icon: CalendarDays, color: '#06b6d4', glow: 'rgba(6,182,212,0.1)',   tab: 'all'       as Tab },
-                { label: 'Upcoming',  value: upcomingCount,  icon: Clock,        color: '#f59e0b', glow: 'rgba(245,158,11,0.1)',  tab: 'upcoming'  as Tab },
-                { label: 'Completed', value: completedCount, icon: CheckCircle,  color: '#10b981', glow: 'rgba(16,185,129,0.1)', tab: 'completed' as Tab },
+                { label: 'Total',     value: allCount,       icon: CalendarDays, color: 'var(--primary)', glow: 'rgba(6,182,212,0.1)',   tab: 'all'       as Tab },
+                { label: 'Upcoming',  value: upcomingCount,  icon: Clock,        color: 'var(--warning)', glow: 'rgba(245,158,11,0.1)',  tab: 'upcoming'  as Tab },
+                { label: 'Completed', value: completedCount, icon: CheckCircle,  color: 'var(--success)', glow: 'rgba(16,185,129,0.1)', tab: 'completed' as Tab },
               ].map((s, i) => {
                 const Icon   = s.icon;
                 const active = tab === s.tab;
@@ -403,7 +438,7 @@ const PatientDashboard: React.FC = () => {
                 {loading ? (
                   <div className="flex flex-col items-center justify-center py-24 gap-4">
                     <div className="w-10 h-10 border-2 rounded-full animate-spin"
-                      style={{ borderColor: 'rgba(6,182,212,0.1)', borderTopColor: '#06b6d4' }} />
+                      style={{ borderColor: 'rgba(6,182,212,0.1)', borderTopColor: 'var(--primary)' }} />
                     <p className="text-sm" style={{ color: '#1e3050' }}>Loading appointments…</p>
                   </div>
 
@@ -442,10 +477,13 @@ const PatientDashboard: React.FC = () => {
                           className="px-6 py-5 transition-all duration-200"
                           style={{
                             borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)',
-                            background: today ? 'rgba(6,182,212,0.025)' : 'transparent',
+                            background: appt.id === newApptId
+                              ? 'rgba(16,185,129,0.04)'
+                              : today ? 'rgba(6,182,212,0.025)' : 'transparent',
+                            outline: appt.id === newApptId ? '1px solid rgba(16,185,129,0.2)' : 'none',
                           }}
                           onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.015)'}
-                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = today ? 'rgba(6,182,212,0.025)' : 'transparent'}>
+                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = appt.id === newApptId ? 'rgba(16,185,129,0.04)' : today ? 'rgba(6,182,212,0.025)' : 'transparent'}>
 
                           <div className="flex items-start gap-4">
                             {/* Mode icon — same rounded style as Home feature cards */}
@@ -456,7 +494,7 @@ const PatientDashboard: React.FC = () => {
                               }}>
                               {online
                                 ? <Video  className="w-4.5 h-4.5" style={{ color: '#60a5fa' }} />
-                                : <MapPin className="w-4.5 h-4.5" style={{ color: '#34d399' }} />}
+                                : <MapPin className="w-4.5 h-4.5" style={{ color: 'var(--success-light)' }} />}
                             </div>
 
                             <div className="flex-1 min-w-0">
@@ -471,7 +509,7 @@ const PatientDashboard: React.FC = () => {
                                   )}
                                   {tmrw && !today && (
                                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wide"
-                                      style={{ background: 'rgba(6,182,212,0.1)', color: '#22d3ee', border: '1px solid rgba(6,182,212,0.25)' }}>
+                                      style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--primary-light)', border: '1px solid rgba(6,182,212,0.25)' }}>
                                       Tomorrow
                                     </span>
                                   )}
@@ -493,7 +531,7 @@ const PatientDashboard: React.FC = () => {
                                   <Clock className="w-3 h-3" />{fmtTime(appt.start_time)}
                                 </span>
                                 {appt.amount != null && appt.amount > 0 && (
-                                  <span className="flex items-center gap-0.5 text-xs font-bold" style={{ color: '#10b981' }}>
+                                  <span className="flex items-center gap-0.5 text-xs font-bold" style={{ color: 'var(--success)' }}>
                                     ₹{appt.amount}
                                   </span>
                                 )}
@@ -504,7 +542,7 @@ const PatientDashboard: React.FC = () => {
                                 <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-xl"
                                   style={{
                                     background: online ? 'rgba(59,130,246,0.1)' : 'rgba(16,185,129,0.1)',
-                                    color:      online ? '#60a5fa' : '#34d399',
+                                    color:      online ? '#60a5fa' : 'var(--success-light)',
                                     border: `1px solid ${online ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)'}`,
                                   }}>
                                   {online ? <Video className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
@@ -513,7 +551,7 @@ const PatientDashboard: React.FC = () => {
 
                                 {appt.payment_status === 'completed' && (
                                   <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-xl"
-                                    style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: '#34d399' }}>
+                                    style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--success-light)' }}>
                                     <CheckCircle className="w-3 h-3" /> Paid
                                   </span>
                                 )}
@@ -569,9 +607,9 @@ const PatientDashboard: React.FC = () => {
             <Reveal delay={0.08}>
               <div className="grid sm:grid-cols-3 gap-4">
                 {[
-                  { icon: Shield,  color: '#22d3ee', title: 'Confidential',      desc: 'All your sessions and data are fully encrypted and private.' },
+                  { icon: Shield,  color: 'var(--primary-light)', title: 'Confidential',      desc: 'All your sessions and data are fully encrypted and private.' },
                   { icon: Zap,     color: '#a78bfa', title: 'Instant Booking',   desc: 'Find a slot and confirm in under 2 minutes, any time.' },
-                  { icon: Heart,   color: '#34d399', title: 'Verified Experts',  desc: 'Every therapist is licensed and background-checked.' },
+                  { icon: Heart,   color: 'var(--success-light)', title: 'Verified Experts',  desc: 'Every therapist is licensed and background-checked.' },
                 ].map((f, i) => {
                   const Icon = f.icon;
                   return (
@@ -614,7 +652,7 @@ const PatientDashboard: React.FC = () => {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full mb-2 text-[11px] font-bold"
-                      style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#34d399' }}>
+                      style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: 'var(--success-light)' }}>
                       <Shield className="w-3 h-3" /> Verified Patient
                     </div>
                     <h2 className="text-xl sm:text-2xl font-bold text-white" style={{ letterSpacing: '-0.02em' }}>
@@ -640,9 +678,9 @@ const PatientDashboard: React.FC = () => {
             {/* Quick session stats */}
             <div className="grid grid-cols-3 gap-4">
               {[
-                { label: 'Total',     value: allCount,       color: '#06b6d4' },
-                { label: 'Upcoming',  value: upcomingCount,  color: '#f59e0b' },
-                { label: 'Completed', value: completedCount, color: '#10b981' },
+                { label: 'Total',     value: allCount,       color: 'var(--primary)' },
+                { label: 'Upcoming',  value: upcomingCount,  color: 'var(--warning)' },
+                { label: 'Completed', value: completedCount, color: 'var(--success)' },
               ].map((s, i) => (
                 <Reveal key={s.label} delay={i * 0.06}>
                   <div className="p-5 rounded-3xl text-center"
@@ -664,13 +702,13 @@ const PatientDashboard: React.FC = () => {
                 <div className="flex items-center justify-between px-6 py-4"
                   style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(7,14,26,0.4)' }}>
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#06b6d4' }}>Profile Information</p>
+                    <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--primary)' }}>Profile Information</p>
                     <p className="text-sm font-bold text-white mt-0.5">Your Details</p>
                   </div>
                   {!editing && (
                     <button onClick={() => { setEditing(true); setPName(user?.full_name || ''); setPEmail(user?.email || ''); }}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all"
-                      style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)', color: '#22d3ee' }}
+                      style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)', color: 'var(--primary-light)' }}
                       onMouseEnter={e => (e.currentTarget as HTMLElement).style.background='rgba(6,182,212,0.18)'}
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background='rgba(6,182,212,0.1)'}>
                       <Edit3 className="w-3.5 h-3.5" /> Edit Profile
@@ -694,7 +732,7 @@ const PatientDashboard: React.FC = () => {
                             <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#1e3050' }}>{field.label}</p>
                           </div>
                           <p className="text-sm font-medium"
-                            style={{ color: field.value === 'Not set' ? '#f59e0b' : '#94a3b8' }}>
+                            style={{ color: field.value === 'Not set' ? 'var(--warning)' : '#94a3b8' }}>
                             {field.value}
                           </p>
                         </div>
@@ -714,16 +752,16 @@ const PatientDashboard: React.FC = () => {
                         <label className="block text-xs font-bold uppercase tracking-widest mb-2" style={{ color: '#334155' }}>Full Name</label>
                         <input value={pName} onChange={e => setPName(e.target.value)} placeholder="Your name"
                           className="w-full px-4 py-3 rounded-2xl text-sm focus:outline-none transition-all"
-                          style={{ background: 'rgba(7,14,26,0.9)', border: '1px solid rgba(30,48,80,0.8)', color: '#f1f5f9' }}
-                          onFocus={e => e.target.style.borderColor='#06b6d4'}
+                          style={{ background: 'rgba(7,14,26,0.9)', border: '1px solid rgba(30,48,80,0.8)', color: 'var(--text-primary)' }}
+                          onFocus={e => e.target.style.borderColor='var(--primary)'}
                           onBlur={e => e.target.style.borderColor='rgba(30,48,80,0.8)'} />
                       </div>
                       <div>
                         <label className="block text-xs font-bold uppercase tracking-widest mb-2" style={{ color: '#334155' }}>Email</label>
                         <input type="email" value={pEmail} onChange={e => setPEmail(e.target.value)} placeholder="your@email.com"
                           className="w-full px-4 py-3 rounded-2xl text-sm focus:outline-none transition-all"
-                          style={{ background: 'rgba(7,14,26,0.9)', border: '1px solid rgba(30,48,80,0.8)', color: '#f1f5f9' }}
-                          onFocus={e => e.target.style.borderColor='#06b6d4'}
+                          style={{ background: 'rgba(7,14,26,0.9)', border: '1px solid rgba(30,48,80,0.8)', color: 'var(--text-primary)' }}
+                          onFocus={e => e.target.style.borderColor='var(--primary)'}
                           onBlur={e => e.target.style.borderColor='rgba(30,48,80,0.8)'} />
                       </div>
                     </div>
@@ -755,7 +793,7 @@ const PatientDashboard: React.FC = () => {
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.06)'; (e.currentTarget as HTMLElement).style.boxShadow='none'; }}>
                   <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
                     style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.2)' }}>
-                    <Calendar className="w-5 h-5" style={{ color: '#22d3ee' }} />
+                    <Calendar className="w-5 h-5" style={{ color: 'var(--primary-light)' }} />
                   </div>
                   <div>
                     <p className="text-sm font-bold text-white">My Appointments</p>

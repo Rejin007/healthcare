@@ -1,43 +1,216 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Search, Video, MapPin, ChevronRight, RefreshCw,
-  X, IndianRupee, Award, SlidersHorizontal, ArrowLeft,
-  CheckCircle, Star, Clock, Filter
+  X, Award, SlidersHorizontal, ArrowLeft,
+  CheckCircle, Clock, Star, IndianRupee
 } from 'lucide-react';
 import { expertService } from '../../services/expert.service';
 import { Expert } from '../../types';
+import { avatarGrad, initials } from '../../styles/theme';
 
-interface CliniciansListProps {
+interface Props {
   onSelectClinician: (expert: Expert) => void;
   onBack?: () => void;
 }
 
-const SPEC_FILTERS = ['All','Psychologist','Therapist','Psychiatrist','Counselor','Child Psychologist','Relationship Therapist'];
-const MODE_FILTERS = [{ id: 'all', label: 'Any Mode' }, { id: 'online', label: 'Online Only' }, { id: 'inperson', label: 'In-Person Only' }];
-const DAY_LABELS   = ['S','M','T','W','T','F','S'];
-const GRADS = [
-  'from-cyan-500 to-blue-600',
-  'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600',
+const SPECS = ['All','Psychologist','Therapist','Psychiatrist','Counselor','Child Psychologist','Relationship Therapist'];
+const MODES = [
+  { id: 'all',      label: 'All Sessions' },
+  { id: 'online',   label: 'Online' },
+  { id: 'inperson', label: 'In-Person' },
 ];
+const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
-const CliniciansListPage: React.FC<CliniciansListProps> = ({ onSelectClinician, onBack }) => {
-  const [experts,          setExperts]          = useState<Expert[]>([]);
-  const [loading,          setLoading]          = useState(true);
-  const [search,           setSearch]           = useState('');
-  const [debouncedSearch,  setDebouncedSearch]  = useState('');
-  const [page,             setPage]             = useState(1);
-  const [totalPages,       setTotalPages]       = useState(1);
-  const [totalItems,       setTotalItems]       = useState(0);
-  const [specFilter,       setSpecFilter]       = useState('All');
-  const [modeFilter,       setModeFilter]       = useState('all');
-  const [showFilters,      setShowFilters]       = useState(false);
-  const [selectedId,       setSelectedId]       = useState<string | null>(null);
+/* ── Helpers ───────────────────────────────────────────────────────────────── */
+const hasOnline   = (e: Expert) => !!(e.online_price || e.availability?.some(a => !a.mode || a.mode === 'online' || a.mode === 'both'));
+const hasInPerson = (e: Expert) => !!(e.inperson_price || e.availability?.some(a => a.mode === 'inperson' || a.mode === 'both'));
+const minPrice    = (e: Expert) => {
+  const prices = [e.online_price, e.inperson_price, ...(e.pricing?.map(p => p.price) ?? [])].filter(Boolean) as number[];
+  return prices.length ? Math.min(...prices) : null;
+};
+const availDays   = (e: Expert) => [...new Set(e.availability?.map(a => a.day_of_week) ?? [])].sort();
+
+/* ── Skeleton Card ─────────────────────────────────────────────────────────── */
+const SkeletonCard = () => (
+  <div className="rounded-2xl p-5 flex gap-4" style={{ background:'var(--bg-surface)', border:'1px solid var(--border-faint)' }}>
+    <div className="w-16 h-16 rounded-2xl flex-shrink-0 skeleton" />
+    <div className="flex-1 space-y-3">
+      <div className="h-4 w-40 rounded-lg skeleton" />
+      <div className="h-3 w-28 rounded-lg skeleton" />
+      <div className="flex gap-2">
+        <div className="h-6 w-16 rounded-full skeleton" />
+        <div className="h-6 w-20 rounded-full skeleton" />
+      </div>
+    </div>
+  </div>
+);
+
+/* ── Expert Card ───────────────────────────────────────────────────────────── */
+const ExpertCard: React.FC<{ expert: Expert; selected: boolean; onSelect: () => void }> = ({ expert, selected, onSelect }) => {
+  const name    = expert.full_name || 'Therapist';
+  const grad    = avatarGrad(name);
+  const init    = initials(name);
+  const days    = availDays(expert);
+  const online  = hasOnline(expert);
+  const inp     = hasInPerson(expert);
+  const price   = minPrice(expert);
+
+  return (
+    <div
+      onClick={onSelect}
+      className="card-lift cursor-pointer rounded-2xl overflow-hidden group"
+      style={{
+        background:   selected ? 'var(--bg-elevated)' : 'var(--bg-surface)',
+        border:       `1px solid ${selected ? 'var(--border-accent)' : 'var(--border-faint)'}`,
+        boxShadow:    selected ? '0 0 0 3px var(--primary-glow), 0 8px 32px rgba(0,0,0,0.3)' : 'none',
+      }}
+    >
+      {/* Accent line */}
+      <div className="h-0.5 transition-opacity duration-200"
+        style={{ background: grad, opacity: selected ? 1 : 0.3 }}
+        onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
+        onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = selected ? '1' : '0.3'} />
+
+      <div className="p-5">
+        {/* ── Top row: avatar + name + badge ─────────────────────── */}
+        <div className="flex gap-4 items-start">
+          {/* Avatar */}
+          <div className="relative flex-shrink-0">
+            {expert.profile_image
+              ? <img src={expert.profile_image} alt={name}
+                  className="w-16 h-16 rounded-2xl object-cover" />
+              : <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-lg font-bold text-white"
+                  style={{ background: grad }}>
+                  {init}
+                </div>
+            }
+            {expert.is_active !== false && (
+              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2"
+                style={{ background:'var(--success)', borderColor:'var(--bg-surface)' }} />
+            )}
+          </div>
+
+          {/* Name / specs / exp */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-[15px] font-bold leading-tight" style={{ color:'var(--text-primary)' }}>
+                  {name}
+                </h3>
+                {expert.specializations && expert.specializations.length > 0 && (
+                  <p className="text-xs font-semibold mt-0.5 line-clamp-1" style={{ color:'var(--text-accent)' }}>
+                    {expert.specializations.slice(0,2).join(' · ')}
+                  </p>
+                )}
+              </div>
+              {selected && (
+                <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color:'var(--primary)' }} />
+              )}
+            </div>
+
+            {expert.experience_years && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <Award className="w-3 h-3" style={{ color:'var(--text-muted)' }} />
+                <span className="text-[11px] font-medium" style={{ color:'var(--text-muted)' }}>
+                  {expert.experience_years}+ yrs experience
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Bio ────────────────────────────────────────────────── */}
+        {expert.bio && (
+          <p className="text-xs leading-relaxed mt-3 line-clamp-2" style={{ color:'var(--text-muted)' }}>
+            {expert.bio}
+          </p>
+        )}
+
+        {/* ── Availability days ───────────────────────────────────── */}
+        {days.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-3">
+            <Clock className="w-3 h-3 flex-shrink-0" style={{ color:'var(--text-muted)' }} />
+            <div className="flex gap-1">
+              {DAY_LABELS.map((d, i) => {
+                const active = days.includes(i);
+                return (
+                  <span key={i} className="w-6 h-6 rounded-md text-[10px] font-bold flex items-center justify-center"
+                    style={{
+                      background: active ? 'var(--primary-glow)' : 'transparent',
+                      color:      active ? 'var(--primary-light)' : 'var(--border-medium)',
+                      border:     `1px solid ${active ? 'var(--border-accent)' : 'var(--border-faint)'}`,
+                    }}>
+                    {d}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Mode badges ─────────────────────────────────────────── */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {online && (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl"
+              style={{ background:'rgba(59,130,246,0.10)', border:'1px solid rgba(59,130,246,0.22)', color:'#60a5fa' }}>
+              <Video className="w-3 h-3" />
+              Online{expert.online_price ? ` · ₹${expert.online_price}` : ''}
+            </span>
+          )}
+          {inp && (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl"
+              style={{ background:'rgba(16,185,129,0.10)', border:'1px solid rgba(16,185,129,0.22)', color:'#34d399' }}>
+              <MapPin className="w-3 h-3" />
+              In-Person{expert.inperson_price ? ` · ₹${expert.inperson_price}` : ''}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Footer ──────────────────────────────────────────────────── */}
+      <div className="px-5 py-3.5 flex items-center justify-between"
+        style={{ borderTop:'1px solid var(--border-faint)', background:'rgba(0,0,0,0.15)' }}>
+        <div>
+          {price != null ? (
+            <>
+              <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color:'var(--text-muted)' }}>Starting from</p>
+              <p className="text-base font-bold flex items-center gap-0.5" style={{ color:'var(--text-primary)' }}>
+                ₹{price}
+                <span className="text-[11px] font-normal ml-0.5" style={{ color:'var(--text-muted)' }}>/session</span>
+              </p>
+            </>
+          ) : (
+            <span className="text-xs" style={{ color:'var(--text-muted)' }}>Contact for pricing</span>
+          )}
+        </div>
+        <button
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl text-sm font-bold text-white transition-all"
+          style={{ background:'linear-gradient(135deg, var(--primary), var(--info))', boxShadow:'0 4px 14px var(--primary-glow)' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(6,182,212,0.35)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px var(--primary-glow)'}>
+          Book Now <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/* ── Main Page ─────────────────────────────────────────────────────────────── */
+const CliniciansListPage: React.FC<Props> = ({ onSelectClinician, onBack }) => {
+  const [experts,         setExperts]         = useState<Expert[]>([]);
+  const [loading,         setLoading]         = useState(true);
+  const [search,          setSearch]          = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page,            setPage]            = useState(1);
+  const [totalPages,      setTotalPages]      = useState(1);
+  const [totalItems,      setTotalItems]      = useState(0);
+  const [specFilter,      setSpecFilter]      = useState('All');
+  const [modeFilter,      setModeFilter]      = useState('all');
+  const [showFilters,     setShowFilters]     = useState(false);
+  const [selectedId,      setSelectedId]      = useState<string | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    const t = setTimeout(() => setDebouncedSearch(search), 380);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -46,99 +219,83 @@ const CliniciansListPage: React.FC<CliniciansListProps> = ({ onSelectClinician, 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res  = await expertService.getAll(page, 12, specFilter !== 'All' ? '' : debouncedSearch);
-      let data: Expert[] = res.data?.experts || [];
+      const searchQ = specFilter === 'All' ? debouncedSearch : '';
+      const res = await expertService.getAll(page, 12, searchQ);
+      let data: Expert[] = res.data?.experts ?? [];
 
-      // Client-side specialization filter
-      if (specFilter !== 'All') {
-        data = data.filter((e: Expert) =>
-          e.specializations?.some(s => s.toLowerCase().includes(specFilter.toLowerCase()))
-        );
-      }
-      // Client-side search if spec filter is active
-      if (specFilter !== 'All' && debouncedSearch) {
-        data = data.filter((e: Expert) =>
-          (e.full_name || '').toLowerCase().includes(debouncedSearch.toLowerCase())
-        );
-      }
-      // Client-side mode filter
-      if (modeFilter !== 'all') {
-        data = data.filter((e: Expert) => {
-          if (modeFilter === 'online')   return !!(e.online_price   || e.availability?.some(a => !a.mode || a.mode === 'online'));
-          if (modeFilter === 'inperson') return !!(e.inperson_price || e.availability?.some(a => a.mode === 'inperson'));
-          return true;
-        });
-      }
+      if (specFilter !== 'All')
+        data = data.filter(e => e.specializations?.some(s => s.toLowerCase().includes(specFilter.toLowerCase())));
+      if (specFilter !== 'All' && debouncedSearch)
+        data = data.filter(e => (e.full_name ?? '').toLowerCase().includes(debouncedSearch.toLowerCase()));
+      if (modeFilter === 'online')   data = data.filter(hasOnline);
+      if (modeFilter === 'inperson') data = data.filter(hasInPerson);
 
       setExperts(data);
-      setTotalPages(res.data?.pagination?.totalPages || 1);
-      setTotalItems(res.data?.pagination?.totalItems || data.length);
+      setTotalPages(res.data?.pagination?.totalPages ?? 1);
+      setTotalItems(res.data?.pagination?.totalItems ?? data.length);
     } catch { setExperts([]); }
-    finally   { setLoading(false); }
+    finally  { setLoading(false); }
   }, [page, debouncedSearch, specFilter, modeFilter]);
 
   useEffect(() => { load(); }, [load]);
 
-  const hasOnline   = (e: Expert) => !!(e.online_price   || e.availability?.some(a => !a.mode || a.mode === 'online'));
-  const hasInPerson = (e: Expert) => !!(e.inperson_price || e.availability?.some(a => a.mode === 'inperson'));
-  const minPrice    = (e: Expert) => {
-    const prices = [e.online_price, e.inperson_price, ...(e.pricing?.map(p => p.price) || [])].filter(Boolean) as number[];
-    return prices.length ? Math.min(...prices) : null;
-  };
-  const availDays   = (e: Expert) => [...new Set(e.availability?.map(a => a.day_of_week) || [])].sort();
-  const initials    = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
+  const activeFilters = [
+    specFilter !== 'All'     && specFilter,
+    modeFilter !== 'all'     && (modeFilter === 'online' ? 'Online' : 'In-Person'),
+    debouncedSearch          && `"${debouncedSearch}"`,
+  ].filter(Boolean);
 
-  const activeFilters = [specFilter !== 'All' && specFilter, modeFilter !== 'all' && (modeFilter === 'online' ? 'Online' : 'In-Person'), debouncedSearch && `"${debouncedSearch}"`].filter(Boolean);
+  const clearAll = () => { setSpecFilter('All'); setModeFilter('all'); setSearch(''); };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#07111e', color: '#f1f5f9', fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor:'var(--bg-deep)', color:'var(--text-primary)' }}>
 
-      {/* ── Sticky header ───────────────────────────────────────────── */}
+      {/* ── Sticky header ─────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-30"
-        style={{ background: 'rgba(7,17,30,0.97)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)' }}>
+        style={{ background:'rgba(7,14,26,0.97)', backdropFilter:'blur(20px)', borderBottom:'1px solid var(--border-faint)', boxShadow:'0 4px 24px rgba(0,0,0,0.25)' }}>
 
         {/* Top bar */}
-        <div className="flex items-center gap-3 px-4 sm:px-6 py-4">
+        <div className="flex items-center gap-3 px-4 sm:px-6 py-4 max-w-5xl mx-auto w-full">
           {onBack && (
-            <button onClick={onBack}
-              className="p-2 rounded-xl flex-shrink-0 transition-all"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b' }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color='#94a3b8'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color='#64748b'}>
+            <button onClick={onBack} className="p-2 rounded-xl flex-shrink-0 transition-colors"
+              style={{ background:'var(--bg-surface)', border:'1px solid var(--border-faint)', color:'var(--text-muted)' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'}>
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
 
           {/* Search */}
           <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#334155' }} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color:'var(--text-muted)' }} />
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search therapists, specializations..."
-              className="w-full pl-11 pr-10 py-2.5 rounded-xl text-sm bg-transparent focus:outline-none transition-all"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#f1f5f9' }}
-              onFocus={e => e.target.style.borderColor='rgba(6,182,212,0.5)'}
-              onBlur={e => e.target.style.borderColor='rgba(255,255,255,0.08)'} />
+              className="w-full pl-11 pr-10 py-2.5 rounded-xl text-sm transition-all"
+              style={{ background:'var(--bg-surface)', border:'1px solid var(--border-faint)', color:'var(--text-primary)' }}
+              onFocus={e  => e.target.style.borderColor = 'var(--border-accent)'}
+              onBlur={e   => e.target.style.borderColor = 'var(--border-faint)'} />
             {search && (
               <button onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
-                style={{ color: '#334155' }}>
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg"
+                style={{ color:'var(--text-muted)' }}>
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
+          {/* Filter toggle */}
           <button onClick={() => setShowFilters(f => !f)}
-            className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold flex-shrink-0 transition-all relative"
+            className="relative flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex-shrink-0 transition-all"
             style={{
-              background: showFilters ? 'rgba(6,182,212,0.15)' : 'rgba(255,255,255,0.05)',
-              border:     `1px solid ${showFilters ? 'rgba(6,182,212,0.4)' : 'rgba(255,255,255,0.08)'}`,
-              color:      showFilters ? '#22d3ee' : '#64748b',
+              background: showFilters ? 'var(--primary-glow)' : 'var(--bg-surface)',
+              border:     `1px solid ${showFilters ? 'var(--border-accent)' : 'var(--border-faint)'}`,
+              color:      showFilters ? 'var(--primary-light)' : 'var(--text-muted)',
             }}>
             <SlidersHorizontal className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Filters</span>
             {activeFilters.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-black flex items-center justify-center text-white"
-                style={{ background: '#06b6d4' }}>
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full text-[9px] font-black flex items-center justify-center text-white"
+                style={{ background:'var(--primary)' }}>
                 {activeFilters.length}
               </span>
             )}
@@ -147,57 +304,50 @@ const CliniciansListPage: React.FC<CliniciansListProps> = ({ onSelectClinician, 
 
         {/* Filter panel */}
         {showFilters && (
-          <div className="px-4 sm:px-6 pb-4 space-y-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="px-4 sm:px-6 pb-4 max-w-5xl mx-auto w-full" style={{ borderTop:'1px solid var(--border-faint)' }}>
             {/* Specialization */}
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-2.5 mt-3" style={{ color: '#334155' }}>Specialization</p>
-              <div className="flex gap-2 flex-wrap">
-                {SPEC_FILTERS.map(f => (
-                  <button key={f} onClick={() => setSpecFilter(f)}
-                    className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
-                    style={{
-                      background: specFilter === f ? '#06b6d4' : 'rgba(255,255,255,0.04)',
-                      color:      specFilter === f ? '#fff' : '#475569',
-                      border:     `1px solid ${specFilter === f ? 'transparent' : 'rgba(255,255,255,0.07)'}`,
-                    }}>
-                    {f}
-                  </button>
-                ))}
-              </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest mt-3 mb-2" style={{ color:'var(--text-muted)' }}>Specialization</p>
+            <div className="flex gap-2 flex-wrap">
+              {SPECS.map(f => (
+                <button key={f} onClick={() => setSpecFilter(f)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+                  style={{
+                    background: specFilter === f ? 'var(--primary)' : 'var(--bg-elevated)',
+                    color:      specFilter === f ? '#fff' : 'var(--text-muted)',
+                    border:     `1px solid ${specFilter === f ? 'transparent' : 'var(--border-faint)'}`,
+                  }}>
+                  {f}
+                </button>
+              ))}
             </div>
 
-            {/* Session mode */}
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-2.5" style={{ color: '#334155' }}>Session Type</p>
-              <div className="flex gap-2">
-                {MODE_FILTERS.map(m => (
-                  <button key={m.id} onClick={() => setModeFilter(m.id)}
-                    className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all"
-                    style={{
-                      background: modeFilter === m.id ? 'rgba(6,182,212,0.15)' : 'rgba(255,255,255,0.04)',
-                      color:      modeFilter === m.id ? '#22d3ee' : '#475569',
-                      border:     `1px solid ${modeFilter === m.id ? 'rgba(6,182,212,0.4)' : 'rgba(255,255,255,0.07)'}`,
-                    }}>
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+            {/* Session type */}
+            <p className="text-[10px] font-bold uppercase tracking-widest mt-4 mb-2" style={{ color:'var(--text-muted)' }}>Session Type</p>
+            <div className="flex gap-2">
+              {MODES.map(m => (
+                <button key={m.id} onClick={() => setModeFilter(m.id)}
+                  className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all"
+                  style={{
+                    background: modeFilter === m.id ? 'var(--primary-glow)' : 'var(--bg-elevated)',
+                    color:      modeFilter === m.id ? 'var(--primary-light)' : 'var(--text-muted)',
+                    border:     `1px solid ${modeFilter === m.id ? 'var(--border-accent)' : 'var(--border-faint)'}`,
+                  }}>
+                  {m.label}
+                </button>
+              ))}
             </div>
 
-            {/* Active filters */}
             {activeFilters.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px]" style={{ color: '#334155' }}>Active:</span>
+              <div className="flex items-center gap-2 mt-3">
+                <span className="text-[11px]" style={{ color:'var(--text-muted)' }}>Active:</span>
                 {activeFilters.map((f, i) => (
                   <span key={i} className="text-[11px] px-2 py-0.5 rounded-full font-medium"
-                    style={{ background: 'rgba(6,182,212,0.1)', color: '#22d3ee', border: '1px solid rgba(6,182,212,0.25)' }}>
+                    style={{ background:'var(--primary-glow)', color:'var(--primary-light)', border:'1px solid var(--border-accent)' }}>
                     {f}
                   </span>
                 ))}
-                <button onClick={() => { setSpecFilter('All'); setModeFilter('all'); setSearch(''); }}
-                  className="text-[11px] ml-1 transition-colors" style={{ color: '#ef4444' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity='0.7'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity='1'}>
+                <button onClick={clearAll} className="text-[11px] ml-1 transition-opacity hover:opacity-70"
+                  style={{ color:'var(--danger)' }}>
                   Clear all
                 </button>
               </div>
@@ -205,189 +355,57 @@ const CliniciansListPage: React.FC<CliniciansListProps> = ({ onSelectClinician, 
           </div>
         )}
 
-        {/* Results count + progress */}
+        {/* Count bar */}
         {!loading && (
-          <div className="flex items-center justify-between px-4 sm:px-6 py-2.5"
-            style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: 'rgba(7,14,26,0.5)' }}>
-            <p className="text-xs font-medium" style={{ color: '#334155' }}>
-              {totalItems} expert{totalItems !== 1 ? 's' : ''} available
+          <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 max-w-5xl mx-auto w-full"
+            style={{ borderTop:'1px solid var(--border-faint)', background:'rgba(0,0,0,0.2)' }}>
+            <p className="text-xs font-medium" style={{ color:'var(--text-muted)' }}>
+              {totalItems} therapist{totalItems !== 1 ? 's' : ''} available
             </p>
             <button onClick={load}
-              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-all"
-              style={{ color: '#1e3050' }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color='#475569'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color='#1e3050'}>
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-colors"
+              style={{ color:'var(--border-strong)' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--border-strong)'}>
               <RefreshCw className="w-3 h-3" /> Refresh
             </button>
           </div>
         )}
       </div>
 
-      {/* ── Content ─────────────────────────────────────────────────── */}
+      {/* ── Content ───────────────────────────────────────────────────────── */}
       <div className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-5">
-            <div className="w-10 h-10 border-2 rounded-full animate-spin"
-              style={{ borderColor: 'rgba(6,182,212,0.1)', borderTopColor: '#06b6d4' }} />
-            <p className="text-sm font-medium" style={{ color: '#1e3050' }}>Finding therapists…</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-2 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
         ) : experts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-5">
+          <div className="flex flex-col items-center justify-center py-32 gap-5 text-center">
             <div className="w-20 h-20 rounded-3xl flex items-center justify-center"
-              style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <Search className="w-8 h-8 opacity-15" />
+              style={{ background:'var(--bg-surface)', border:'1px solid var(--border-faint)' }}>
+              <Search className="w-8 h-8 opacity-20" />
             </div>
-            <div className="text-center">
-              <p className="text-base font-bold mb-1" style={{ color: '#334155' }}>No therapists found</p>
-              <p className="text-sm" style={{ color: '#1e3050' }}>Try adjusting your filters</p>
+            <div>
+              <p className="text-base font-bold mb-1" style={{ color:'var(--text-secondary)' }}>No therapists found</p>
+              <p className="text-sm" style={{ color:'var(--text-muted)' }}>Try adjusting your filters or search</p>
             </div>
-            <button onClick={() => { setSpecFilter('All'); setModeFilter('all'); setSearch(''); }}
+            <button onClick={clearAll}
               className="px-5 py-2.5 rounded-2xl text-sm font-semibold transition-all"
-              style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)', color: '#22d3ee' }}>
+              style={{ background:'var(--primary-glow)', border:'1px solid var(--border-accent)', color:'var(--primary-light)' }}>
               Clear all filters
             </button>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {experts.map(expert => {
-              const name    = expert.full_name || 'Therapist';
-              const days    = availDays(expert);
-              const online  = hasOnline(expert);
-              const inp     = hasInPerson(expert);
-              const price   = minPrice(expert);
-              const init    = initials(name);
-              const grad    = GRADS[name.charCodeAt(0) % GRADS.length];
-              const isSelected = selectedId === expert.id;
-
-              return (
-                <div key={expert.id}
-                  onClick={() => { setSelectedId(expert.id); onSelectClinician(expert); }}
-                  className="relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 flex flex-col group"
-                  style={{
-                    background: 'rgba(10,18,32,0.92)',
-                    border: `1px solid ${isSelected ? 'rgba(6,182,212,0.6)' : 'rgba(255,255,255,0.07)'}`,
-                    boxShadow: isSelected ? '0 0 0 3px rgba(6,182,212,0.15), 0 16px 40px rgba(0,0,0,0.3)' : 'none',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(6,182,212,0.35)';
-                    (e.currentTarget as HTMLElement).style.transform   = 'translateY(-2px)';
-                    (e.currentTarget as HTMLElement).style.boxShadow   = '0 12px 36px rgba(0,0,0,0.35)';
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLElement).style.borderColor = isSelected ? 'rgba(6,182,212,0.6)' : 'rgba(255,255,255,0.07)';
-                    (e.currentTarget as HTMLElement).style.transform   = 'translateY(0)';
-                    (e.currentTarget as HTMLElement).style.boxShadow   = isSelected ? '0 0 0 3px rgba(6,182,212,0.15)' : 'none';
-                  }}>
-
-                  {/* Gradient accent line */}
-                  <div className={`h-0.5 bg-gradient-to-r ${grad} opacity-40 group-hover:opacity-80 transition-opacity`} />
-
-                  <div className="p-5 flex-1 flex flex-col gap-3.5">
-                    {/* Header */}
-                    <div className="flex items-start gap-3.5">
-                      <div className="relative flex-shrink-0">
-                        {expert.profile_image
-                          ? <img src={expert.profile_image} alt={name}
-                              className="w-14 h-14 rounded-2xl object-cover" />
-                          : <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${grad} flex items-center justify-center text-base font-bold text-white`}>
-                              {init}
-                            </div>
-                        }
-                        {expert.is_active !== false && (
-                          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2"
-                            style={{ background: '#10b981', borderColor: 'rgba(10,18,32,0.92)' }} />
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="text-sm font-bold leading-tight truncate" style={{ color: '#f1f5f9' }}>{name}</h3>
-                          {isSelected && <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#22d3ee' }} />}
-                        </div>
-                        {expert.specializations && expert.specializations.length > 0 && (
-                          <p className="text-xs font-semibold mt-0.5 truncate" style={{ color: '#22d3ee' }}>
-                            {expert.specializations.slice(0, 2).join(' · ')}
-                          </p>
-                        )}
-                        {expert.experience_years && (
-                          <div className="flex items-center gap-1 mt-1">
-                            <Award className="w-3 h-3" style={{ color: '#334155' }} />
-                            <span className="text-[11px]" style={{ color: '#475569' }}>{expert.experience_years}+ yrs exp</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Bio */}
-                    {expert.bio && (
-                      <p className="text-xs leading-relaxed line-clamp-2" style={{ color: '#475569' }}>
-                        {expert.bio}
-                      </p>
-                    )}
-
-                    {/* Availability days */}
-                    {days.length > 0 && (
-                      <div className="flex gap-1">
-                        {DAY_LABELS.map((d, i) => {
-                          const active = days.includes(i);
-                          return (
-                            <div key={i} className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold"
-                              style={{
-                                background: active ? 'rgba(6,182,212,0.1)' : 'rgba(255,255,255,0.025)',
-                                color:      active ? '#22d3ee' : '#1a2744',
-                                border:     `1px solid ${active ? 'rgba(6,182,212,0.3)' : 'rgba(255,255,255,0.04)'}`,
-                              }}>
-                              {d}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Mode badges */}
-                    <div className="flex gap-2 flex-wrap">
-                      {online && (
-                        <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl"
-                          style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', color: '#60a5fa' }}>
-                          <Video className="w-3 h-3" />
-                          Online{expert.online_price ? ` · ₹${expert.online_price}` : ''}
-                        </span>
-                      )}
-                      {inp && (
-                        <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl"
-                          style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: '#34d399' }}>
-                          <MapPin className="w-3 h-3" />
-                          In-Person{expert.inperson_price ? ` · ₹${expert.inperson_price}` : ''}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="px-5 py-3.5 flex items-center justify-between"
-                    style={{ borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(7,14,26,0.5)' }}>
-                    <div>
-                      {price != null ? (
-                        <>
-                          <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: '#1e3050' }}>From</p>
-                          <div className="flex items-center gap-0.5">
-                            <span className="text-base font-bold" style={{ color: '#f1f5f9' }}>₹{price}</span>
-                            <span className="text-[10px] ml-1" style={{ color: '#334155' }}>/session</span>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-xs" style={{ color: '#334155' }}>Contact for price</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-bold text-white"
-                      style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', boxShadow: '0 4px 14px rgba(6,182,212,0.25)' }}>
-                      Select <ChevronRight className="w-3.5 h-3.5" />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="grid sm:grid-cols-2 gap-4">
+            {experts.map(expert => (
+              <ExpertCard
+                key={expert.id}
+                expert={expert}
+                selected={selectedId === expert.id}
+                onSelect={() => { setSelectedId(expert.id); onSelectClinician(expert); }}
+              />
+            ))}
           </div>
         )}
 
@@ -396,15 +414,15 @@ const CliniciansListPage: React.FC<CliniciansListProps> = ({ onSelectClinician, 
           <div className="flex items-center justify-center gap-3 mt-8 pb-4">
             <button onClick={() => setPage(p => p - 1)} disabled={page === 1}
               className="px-5 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-30"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b' }}>
+              style={{ background:'var(--bg-surface)', border:'1px solid var(--border-faint)', color:'var(--text-secondary)' }}>
               ← Previous
             </button>
-            <span className="text-sm font-medium px-3" style={{ color: '#334155' }}>
+            <span className="text-sm font-medium px-3" style={{ color:'var(--text-muted)' }}>
               {page} / {totalPages}
             </span>
             <button onClick={() => setPage(p => p + 1)} disabled={page === totalPages}
               className="px-5 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-30"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b' }}>
+              style={{ background:'var(--bg-surface)', border:'1px solid var(--border-faint)', color:'var(--text-secondary)' }}>
               Next →
             </button>
           </div>

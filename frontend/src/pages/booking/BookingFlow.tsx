@@ -4,20 +4,18 @@ import CliniciansListPage from './CliniciansListPage';
 import SessionDetailsPage, { SessionDetails } from './SessionDetailsPage';
 import ConfirmDetailsPage from './ConfirmDetailsPage';
 import PaymentPage from './PaymentPage';
-import BookingSuccessPage from './BookingSuccessPage';
 
-type BookingStep = 'list' | 'session' | 'confirm' | 'payment' | 'success';
+type BookingStep = 'list' | 'session' | 'confirm' | 'payment';
 
 interface BookingFlowProps {
   user: any;
-  onBackToDashboard: () => void;
+  onBackToDashboard: (appointmentId?: string) => void;
 }
 
 const BookingFlow: React.FC<BookingFlowProps> = ({ user, onBackToDashboard }) => {
   const [step,           setStep]           = useState<BookingStep>('list');
   const [selectedExpert, setSelectedExpert] = useState<Expert | null>(null);
   const [sessionDetails, setSessionDetails] = useState<SessionDetails | null>(null);
-  const [appointmentId,  setAppointmentId]  = useState<string>('');
 
   const handleSelectClinician = (expert: Expert) => {
     setSelectedExpert(expert);
@@ -31,9 +29,9 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ user, onBackToDashboard }) =>
 
   const handleConfirm = () => setStep('payment');
 
+  // Payment done → go straight to dashboard; pass appointmentId so it can be highlighted
   const handlePaySuccess = (apptId: string) => {
-    setAppointmentId(apptId);
-    setStep('success');
+    onBackToDashboard(apptId);
   };
 
   switch (step) {
@@ -44,7 +42,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ user, onBackToDashboard }) =>
       return (
         <SessionDetailsPage
           expert={selectedExpert!}
-          user={user}                        // ← pass user for booked-date check
+          user={user}
           onBack={() => setStep('list')}
           onNext={handleSessionDone}
         />
@@ -69,21 +67,6 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ user, onBackToDashboard }) =>
           user={user}
           onBack={() => setStep('confirm')}
           onSuccess={handlePaySuccess}
-        />
-      );
-
-    case 'success':
-      return (
-        <BookingSuccessPage
-          expert={selectedExpert!}
-          session={sessionDetails!}
-          appointmentId={appointmentId}
-          onViewDashboard={onBackToDashboard}
-          onBookAnother={() => {
-            setSelectedExpert(null);
-            setSessionDetails(null);
-            setStep('list');
-          }}
         />
       );
 

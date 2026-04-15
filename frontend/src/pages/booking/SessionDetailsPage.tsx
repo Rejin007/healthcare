@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ChevronLeft, ChevronRight, Video, MapPin, Clock,
-  Calendar, Check, Loader2, AlertCircle, IndianRupee, Ban
+  Calendar, Check, Loader2, AlertCircle, IndianRupee, Ban, X
 } from 'lucide-react';
 import { Expert } from '../../types';
 import { appointmentService } from '../../services/appointment.service';
@@ -138,6 +138,10 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
   const [bookedDates, setBookedDates]     = useState<Set<string>>(new Set());
   const [bookedDatesLoading, setBookedDatesLoading] = useState(true);
 
+  // ── Error banner: only shown when patient clicks an already-booked date ──────
+  const [showBookedError, setShowBookedError] = useState(false);
+  const bookedErrorTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Fetch the user's existing active appointments with this expert
   useEffect(() => {
     if (!user?.id) { setBookedDatesLoading(false); return; }
@@ -199,6 +203,13 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
 
   const price      = resolvePrice(expert, mode);
   const canGoNext  = !!(selectedDate && selectedSlot);
+
+  // Show the booked-date error banner for 8 s then auto-hide
+  const triggerBookedError = () => {
+    setShowBookedError(true);
+    if (bookedErrorTimer.current) clearTimeout(bookedErrorTimer.current);
+    bookedErrorTimer.current = setTimeout(() => setShowBookedError(false), 8000);
+  };
 
   const handleModeChange = (m: 'online' | 'inperson') => {
     setMode(m);
@@ -280,20 +291,33 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
           )}
         </div>
 
-        {/* ── Already-booked notice (if any dates are blocked) ─────────────── */}
-        {bookedDates.size > 0 && (
+        {/* ── Already-booked notice — shown only when patient clicks a booked date ── */}
+        {showBookedError && (
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
-            style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            style={{
+              background: 'rgba(239,68,68,0.07)',
+              border: '1px solid rgba(239,68,68,0.25)',
+              animation: 'fadeIn 0.25s ease',
+            }}>
             <Ban className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#f87171' }} />
-            <div>
+            <div className="flex-1">
               <p className="text-xs font-semibold" style={{ color: '#f87171' }}>
-                You already have an active appointment on {bookedDates.size === 1 ? 'a date' : 'some dates'} below.
+                You already have an active appointment on some dates below.
               </p>
               <p className="text-xs mt-0.5" style={{ color: '#94a3b8' }}>
-                Dates marked with <span style={{ color: '#f87171' }}>✕</span> are unavailable.
+                Dates marked with <X className="inline w-3 h-3 mx-0.5" style={{ color: '#f87171' }} /> are unavailable.
                 Please choose a different day.
               </p>
             </div>
+            <button
+              onClick={() => { setShowBookedError(false); if (bookedErrorTimer.current) clearTimeout(bookedErrorTimer.current); }}
+              className="flex-shrink-0 p-1 rounded-lg transition-colors"
+              style={{ color: '#475569' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#94a3b8'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#475569'}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -419,9 +443,13 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
                   return (
                     <div key={i} className="relative flex flex-col items-center">
                       <button
-                        disabled={!avail}
+                        disabled={past || (!avail && !booked)}
                         title={booked ? 'You already have an appointment on this day' : undefined}
-                        onClick={() => { setSelectedDate(dateStr); setSelectedSlot(null); }}
+                        onClick={() => {
+                          if (booked) { triggerBookedError(); return; }
+                          setSelectedDate(dateStr);
+                          setSelectedSlot(null);
+                        }}
                         className="relative h-9 w-full flex items-center justify-center text-sm rounded-xl transition-all disabled:cursor-not-allowed"
                         style={{
                           background: selected
@@ -460,11 +488,11 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
                             style={{ background: 'var(--primary)' }} />
                         )}
 
-                        {/* Red ✕ = already booked */}
+                        {/* Red X = already booked */}
                         {booked && !selected && (
-                          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
+                          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
                             style={{ background: '#ef4444', color: '#fff' }}>
-                            ✕
+                            <X className="w-2.5 h-2.5" />
                           </span>
                         )}
                       </button>
@@ -489,8 +517,8 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
                 Available
               </span>
               <span className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
-                  style={{ background: '#ef4444', color: '#fff' }}>✕</span>
+                <span className="w-4 h-4 rounded-full flex items-center justify-center"
+                  style={{ background: '#ef4444', color: '#fff' }}><X className="w-2.5 h-2.5" /></span>
                 Already booked
               </span>
             </div>

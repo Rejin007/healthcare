@@ -228,13 +228,13 @@ const Home: React.FC = () => {
   });
 
   return (
-    <div style={{ backgroundColor: '#07111e', color: '#f1f5f9', fontFamily: "'DM Sans', sans-serif", overflowX: 'hidden' }}>
+    <div style={{ backgroundColor: 'var(--bg-deep)', color: '#f1f5f9', fontFamily: "'DM Sans', sans-serif", overflowX: 'hidden' }}>
 
       {/* ── Announcement bar ───────────────────────────────────────── */}
-      <div className="py-2.5 text-center text-xs font-semibold"
+      {/* <div className="py-2.5 text-center text-xs font-semibold flex items-center justify-center gap-1.5"
         style={{ background: 'linear-gradient(90deg, #0891b2, #6366f1, #0891b2)', backgroundSize: '200%', animation: 'shiftBg 10s linear infinite', color: '#fff', letterSpacing: '0.02em' }}>
-        🧠 Use&nbsp;<span className="font-black bg-white/20 px-1.5 py-0.5 rounded-md">MIND15</span>&nbsp;for 15% off your first session &nbsp;·&nbsp; Same-day appointments available
-      </div>
+        <Brain className="w-3.5 h-3.5 inline-block" /> Use&nbsp;<span className="font-black bg-white/20 px-1.5 py-0.5 rounded-md">MIND15</span>&nbsp;for 15% off your first session &nbsp;·&nbsp; Same-day appointments available
+      </div> */}
 
       {/* ── Navigation ─────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 transition-all duration-300"
@@ -367,11 +367,11 @@ const Home: React.FC = () => {
             </h1>
           </Reveal>
 
-          <Reveal delay={0.14}>
+          {/* <Reveal delay={0.14}>
             <p className="text-base sm:text-lg max-w-2xl mx-auto mb-10 leading-relaxed" style={{ color: '#64748b' }}>
               Connect with licensed therapists, psychologists & counselors. Online or in-person — your choice, your pace. Same-day appointments available across India.
             </p>
-          </Reveal>
+          </Reveal> */}
 
           <Reveal delay={0.2}>
             {/* Search bar */}
@@ -425,7 +425,7 @@ const Home: React.FC = () => {
             {[
               { v: '10,000+', l: 'Patients Helped', icon: Users },
               { v: '50+',     l: 'Verified Experts', icon: Shield },
-              { v: '4.9 ★',  l: 'Average Rating',   icon: Star },
+              { v: '4.9',    l: 'Average Rating',   icon: Star },
               { v: '< 2 min', l: 'Booking Time',    icon: Zap },
             ].map(s => {
               const Icon = s.icon;
