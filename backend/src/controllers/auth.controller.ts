@@ -6,8 +6,8 @@ import {
   generateOTPCode,
   saveOTPtoDB,
   verifyOTPFromDB,
-  sendOTPviaSMS,
 } from '../services/otp.service';
+import { sendOTPviaEmail } from '../services/email.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 // ── Phone helpers ─────────────────────────────────────────────────────────────
@@ -25,14 +25,6 @@ function phoneVariants(raw: string): string[] {
   return Array.from(variants);
 }
 
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
-  if (raw.trim().startsWith('+')) return raw.trim();
-  return `+${digits}`;
-}
-
 async function findUserByPhone(rawPhone: string) {
   const variants = phoneVariants(rawPhone);
   console.log(`[Auth] Phone variants:`, variants);
@@ -44,12 +36,7 @@ async function findUserByPhone(rawPhone: string) {
   return result.rows[0] || null;
 }
 
-// ── GENERATE OTP ──────────────────────────────────────────────────────────────
-// THE ONLY FLOW — no Twilio Verify, no dual-code confusion:
-//   1. Generate our own 6-digit code
-//   2. Save to DB (source of truth, UTC-safe expiry)
-//   3. Try to send via Twilio SMS (Messages API, not Verify)
-//   4. verifyOTP always checks DB — SMS is best-effort delivery only
+// ── GENERATE OTP (sends via Email) ───────────────────────────────────────────
 export const generateOTP = async (req: Request, res: Response): Promise<void> => {
   try {
     const { phone: rawPhone } = req.body;
@@ -69,42 +56,46 @@ export const generateOTP = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // Step 1+2: Generate code and save to DB — this ALWAYS runs first
-    const otp = generateOTPCode();
-    await saveOTPtoDB(user.id, otp);
-    console.log(`[Auth] OTP saved to DB for user ${user.id}`);
-
-    // Step 3: Try to deliver via SMS (best-effort)
-    const phoneE164 = normalizePhone(user.phone);
-    console.log(`[Auth] Attempting SMS to ${phoneE164}`);
-
-    const smsResult = await sendOTPviaSMS(phoneE164, otp);
-
-    if (smsResult.sent) {
-      console.log(`[Auth] ✅ SMS delivered to ${phoneE164}`);
-      res.status(200).json({
-        success: true,
-        message: 'OTP sent to your mobile. Valid for 10 minutes.',
-        data: { phone: rawPhone, smsSent: true },
+    // Check patient has an email
+    if (!user.email) {
+      res.status(400).json({
+        success: false,
+        message: 'No email address registered for this account. Please contact the clinic.',
       });
       return;
     }
 
-    // SMS failed but OTP is safely in DB
-    // In development: expose OTP in response so dev/admin can test
-    // In production: admin must check server logs
-    console.warn(`[Auth] SMS failed: ${smsResult.error}`);
+    // Generate OTP and save to DB
+    const otp = generateOTPCode();
+    await saveOTPtoDB(user.id, otp);
+    console.log(`[Auth] OTP saved to DB for user ${user.id}`);
+
+    // Send via Email
+    console.log(`[Auth] Sending OTP via email to ${user.email}`);
+    const emailResult = await sendOTPviaEmail(user.email, otp, user.full_name);
+
+    if (emailResult.sent) {
+      console.log(`[Auth] ✅ OTP email delivered to ${user.email}`);
+      res.status(200).json({
+        success: true,
+        message: `OTP sent to your email ${user.email}. Valid for 10 minutes.`,
+        data: { phone: rawPhone, emailSent: true },
+      });
+      return;
+    }
+
+    // Email failed — still usable in development via logs
+    console.warn(`[Auth] Email failed: ${emailResult.error}`);
     console.log(`[Auth] ⚠️  OTP for ${user.id} → ${otp}  (check server logs)`);
 
     res.status(200).json({
       success: true,
-      message: smsResult.error === 'SMS not configured'
-        ? 'OTP generated (SMS not configured). Check server logs or enable dev mode.'
-        : `OTP generated but SMS failed: ${smsResult.error}`,
+      message: emailResult.error === 'Email not configured'
+        ? 'OTP generated (Email not configured). Add EMAIL_USER and EMAIL_PASS to .env'
+        : `OTP generated but email failed: ${emailResult.error}`,
       data: {
         phone: rawPhone,
-        smsSent: false,
-        // Always expose in development; never in production
+        emailSent: false,
         ...(process.env.NODE_ENV === 'development' && { otp }),
       },
     });
@@ -115,8 +106,6 @@ export const generateOTP = async (req: Request, res: Response): Promise<void> =>
 };
 
 // ── VERIFY OTP ────────────────────────────────────────────────────────────────
-// Always verifies against DB. One code, one source of truth.
-// SMS delivery is irrelevant to verification logic.
 export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
   try {
     const { phone: rawPhone, otp } = req.body;
@@ -135,7 +124,6 @@ export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
     }
     console.log(`[Auth] Found user ${user.id}, phone: "${user.phone}"`);
 
-    // Check DB — only source of truth
     const check = await verifyOTPFromDB(user.id, enteredCode);
     console.log(`[Auth] OTP check:`, check);
 
@@ -144,7 +132,6 @@ export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Verified — issue tokens
     await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
     const jwtSecret     = process.env.JWT_SECRET     || 'change-this-secret';

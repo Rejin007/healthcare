@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import pool from '../config/database';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { generateOTPCode, saveOTPtoDB } from '../services/otp.service';
+import { sendOTPviaEmail } from '../services/email.service';
 
 export const getAllPatients = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -220,5 +222,61 @@ export const getPatientStats = async (req: AuthRequest, res: Response): Promise<
   } catch (error) {
     console.error('Get patient stats error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch stats' });
+  }
+};
+
+// ── SEND OTP VIA EMAIL ────────────────────────────────────────────────────────
+export const sendOTPToEmail = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // 1. Fetch patient
+    const result = await pool.query(
+      'SELECT id, email, full_name FROM users WHERE id = $1 AND is_active = true',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ success: false, message: 'Patient not found' });
+      return;
+    }
+
+    const { email, full_name } = result.rows[0];
+
+    if (!email) {
+      res.status(400).json({ success: false, message: 'Patient has no registered email address' });
+      return;
+    }
+
+    // 2. Generate OTP and save to DB (same table used for SMS OTP)
+    const otp = generateOTPCode();
+    await saveOTPtoDB(id, otp);
+    console.log(`[OTP] Generated for patient ${id}, delivering via email`);
+
+    // 3. Send email
+    const emailResult = await sendOTPviaEmail(email, otp, full_name);
+
+    if (emailResult.sent) {
+      res.status(200).json({
+        success: true,
+        message: `OTP sent to ${email}`,
+        data: { email },
+      });
+      return;
+    }
+
+    // Email failed — log OTP for dev debugging
+    console.warn(`[OTP Email] Failed: ${emailResult.error}`);
+    console.log(`[OTP Email] ⚠️  OTP for patient ${id} → ${otp}  (email delivery failed)`);
+
+    res.status(500).json({
+      success: false,
+      message: emailResult.error === 'Email not configured'
+        ? 'Email service not configured. Add EMAIL_USER and EMAIL_PASS to .env'
+        : `Failed to send email: ${emailResult.error}`,
+    });
+  } catch (error) {
+    console.error('[OTP Email] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send OTP email' });
   }
 };

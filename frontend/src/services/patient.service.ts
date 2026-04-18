@@ -24,5 +24,9 @@ export const patientService = {
   getStats: async () => {
     const response = await api.get('/patients/stats');
     return response.data;
-  }
+  },
+  sendOTPEmail: async (patientId: string) => {
+    const response = await api.post(`/patients/${patientId}/send-otp-email`);
+    return response.data;
+  },
 };
