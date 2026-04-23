@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   Activity, Calendar, Clock, Video, MapPin, LogOut,
   Phone, Mail, CheckCircle, ChevronLeft, ChevronRight,
@@ -67,6 +67,9 @@ type Panel = 'appointments' | 'profile';
 /* ─── Main Component ─────────────────────────────────────────────────────── */
 const PatientDashboard: React.FC = () => {
   const { user, logout } = useAuth();
+  const location = useLocation();
+  // Pick up appointmentId passed from PublicBookingPage after guest books
+  const routeNewApptId = (location.state as any)?.newApptId as string | undefined;
   const [view,      setView]      = useState<View>('dashboard');
   const [panel,     setPanel]     = useState<Panel>('appointments');
   const [navOpen,   setNavOpen]   = useState(false);
@@ -88,7 +91,7 @@ const PatientDashboard: React.FC = () => {
   const [pEmail,  setPEmail]  = useState(user?.email    || '');
   const [saving,  setSaving]  = useState(false);
   const [saveErr, setSaveErr] = useState('');
-  const [newApptId, setNewApptId] = useState<string | null>(null);
+  const [newApptId, setNewApptId] = useState<string | null>(routeNewApptId ?? null);
 
   /* Scroll detection — same as Home.tsx nav */
   useEffect(() => {

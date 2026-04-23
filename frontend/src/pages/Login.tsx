@@ -49,7 +49,7 @@ const saveSession = (token: string, user: any, remember: boolean) => {
 };
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
-  const [mode, setMode]                 = useState<LoginMode>('admin');
+  const [mode, setMode]                 = useState<LoginMode>('patient');
   const [email, setEmail]               = useState('');
   const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -97,7 +97,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     if (otpStep === 'otp' && otpDigits.join('').length === 6 && !loading) {
       handleVerifyOtp();
     }
-  }, [otpDigits]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpDigits, otpStep, loading]);
 
   const formatTimer = (s: number) => {
     const m = Math.floor(s / 60);

@@ -23,7 +23,7 @@ export const authenticateToken = async (
       return;
     }
 
-    const jwtSecret = process.env.JWT_SECRET || 'default-secret-change-in-production';
+    const jwtSecret = process.env.JWT_SECRET || 'change-this-secret';
     const decoded = jwt.verify(token, jwtSecret) as any;
     req.user = decoded;
     next();

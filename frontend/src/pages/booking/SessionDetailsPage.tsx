@@ -256,11 +256,11 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="flex-1">
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Step 2 of 4</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Step 2 of 5</p>
             <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Choose Session Details</p>
           </div>
           <div className="flex gap-1.5">
-            {[1,2,3,4].map(s => (
+            {[1,2,3,4,5].map(s => (
               <div key={s} className="w-2 h-2 rounded-full transition-all"
                 style={{ background: s <= 2 ? 'var(--primary)' : 'var(--border-medium)' }} />
             ))}

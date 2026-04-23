@@ -222,11 +222,15 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
     const endTime = new Date(startTime.getTime() + Number(duration) * 60000);
 
     // Prevent patient from booking more than one appointment per day
+    // Exclude appointments that are in 'scheduled' status with only a pending payment
+    // (these are failed/incomplete booking attempts that should allow retry)
     const sameDayCheck = await client.query(
-      `SELECT id FROM appointments
-       WHERE user_id = $1
-       AND DATE(start_time) = DATE($2::timestamptz)
-       AND status NOT IN ('cancelled', 'no-show')`,
+      `SELECT a.id FROM appointments a
+       LEFT JOIN payments p ON a.payment_id = p.id
+       WHERE a.user_id = $1
+       AND DATE(a.start_time) = DATE($2::timestamptz)
+       AND a.status NOT IN ('cancelled', 'no-show')
+       AND (p.status = 'completed' OR a.payment_id IS NULL)`,
       [user_id, startTime.toISOString()]
     );
 
@@ -239,15 +243,17 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    // Check for scheduling conflicts
+    // Check for scheduling conflicts — ignore stale scheduled slots with pending payment (retry-safe)
     const conflictCheck = await client.query(
-      `SELECT id FROM appointments
-       WHERE expert_id = $1 
-       AND status NOT IN ('cancelled', 'no-show')
+      `SELECT a.id FROM appointments a
+       LEFT JOIN payments p ON a.payment_id = p.id
+       WHERE a.expert_id = $1 
+       AND a.status NOT IN ('cancelled', 'no-show')
+       AND NOT (a.status = 'scheduled' AND (p.status = 'pending' OR a.payment_id IS NULL))
        AND (
-         (start_time <= $2 AND end_time > $2) OR
-         (start_time < $3 AND end_time >= $3) OR
-         (start_time >= $2 AND end_time <= $3)
+         (a.start_time <= $2 AND a.end_time > $2) OR
+         (a.start_time < $3 AND a.end_time >= $3) OR
+         (a.start_time >= $2 AND a.end_time <= $3)
        )`,
       [expert_id, startTime, endTime]
     );
@@ -269,6 +275,24 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
 
     const amount = pricingResult.rows.length > 0 ? pricingResult.rows[0].price : 500;
 
+    // Cancel any stale "scheduled" appointments with pending payment for this user/expert/time
+    // These are leftover from previous failed booking attempts
+    await client.query(
+      `UPDATE appointments SET status = 'cancelled'
+       WHERE user_id = $1 AND expert_id = $2
+       AND DATE(start_time) = DATE($3::timestamptz)
+       AND status = 'scheduled'
+       AND id IN (
+         SELECT a.id FROM appointments a
+         LEFT JOIN payments p ON a.payment_id = p.id
+         WHERE a.user_id = $1 AND a.expert_id = $2
+         AND DATE(a.start_time) = DATE($3::timestamptz)
+         AND a.status = 'scheduled'
+         AND (p.status = 'pending' OR a.payment_id IS NULL)
+       )`,
+      [user_id, expert_id, startTime.toISOString()]
+    );
+
     // Create appointment
     const appointmentResult = await client.query(
       `INSERT INTO appointments (
@@ -289,11 +313,6 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
       await client.query(
         'UPDATE appointments SET google_meet_link = $1 WHERE id = $2',
         [finalLink, appointment.id]
-      );
-      // Also save to google_meet_links table
-      await client.query(
-        'INSERT INTO google_meet_links (appointment_id, meet_url) VALUES ($1, $2)',
-        [appointment.id, finalLink]
       );
       appointment.google_meet_link = finalLink;
     }
@@ -319,14 +338,7 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
       // Send SMS (non-blocking — don't fail the booking if SMS fails)
       sendSMS(patient.phone, smsBody).catch(console.error);
 
-      // Save notification record to DB
-      await client.query(
-        `INSERT INTO notifications (user_id, type, channel, message)
-         VALUES ($1, 'appointment_confirmed', 'sms', $2)`,
-        [user_id, smsBody]
-      );
     }
-
     // Create payment record
     const paymentResult = await client.query(
       `INSERT INTO payments (
@@ -353,10 +365,14 @@ export const createAppointment = async (req: AuthRequest, res: Response): Promis
         amount
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error('Create appointment error:', error);
-    res.status(500).json({ success: false, message: 'Failed to create appointment' });
+    console.error('Create appointment error:', error?.message || error);
+    console.error('Error detail:', error?.detail || error?.hint || '');
+    res.status(500).json({ 
+      success: false, 
+      message: error?.detail || error?.message || 'Failed to create appointment'
+    });
   } finally {
     client.release();
   }
@@ -529,13 +545,6 @@ export const updateMeetLink = async (req: Request, res: Response): Promise<void>
       res.status(404).json({ success: false, message: 'Online appointment not found' });
       return;
     }
-
-    // Update google_meet_links table (delete existing + insert new)
-    await pool.query('DELETE FROM google_meet_links WHERE appointment_id = $1', [id]);
-    await pool.query(
-      'INSERT INTO google_meet_links (appointment_id, meet_url) VALUES ($1, $2)',
-      [id, meet_link]
-    );
 
     res.status(200).json({ success: true, message: 'Meet link updated', data: { meet_link } });
   } catch (error: any) {

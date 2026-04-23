@@ -33,17 +33,17 @@ migrations=(
 # Run each migration
 for migration in "${migrations[@]}"
 do
-    echo "📝 Running migration: $migration"
+    echo " Running migration: $migration"
     PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f "migrations/$migration"
     
     if [ $? -eq 0 ]; then
-        echo "✅ $migration completed successfully"
+        echo " $migration completed successfully"
     else
-        echo "❌ $migration failed"
+        echo " $migration failed"
         exit 1
     fi
     echo ""
 done
 
 echo "=================================="
-echo "✅ All migrations completed successfully!"
+echo " All migrations completed successfully!"

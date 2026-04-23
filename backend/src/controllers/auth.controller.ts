@@ -140,10 +140,11 @@ export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
     const accessToken  = jwt.sign({ id: user.id, type: 'user' }, jwtSecret,     { expiresIn: '7d' });
     const refreshToken = jwt.sign({ id: user.id, type: 'user' }, refreshSecret, { expiresIn: '30d' });
 
+    // Delete any existing session for this user, then insert fresh
+    await pool.query('DELETE FROM user_sessions WHERE user_id = $1', [user.id]);
     await pool.query(
       `INSERT INTO user_sessions (user_id, refresh_token, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '30 days')
-       ON CONFLICT DO NOTHING`,
+       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
       [user.id, refreshToken]
     );
 

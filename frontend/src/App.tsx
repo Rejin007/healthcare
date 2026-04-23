@@ -17,6 +17,7 @@ import SettingsPage from './pages/Settings';
 import Notifications from './pages/Notifications';
 import PatientDashboard from './pages/PatientDashboard';
 import Home from './pages/Home';
+import PublicBookingPage from './pages/booking/PublicBookingPage';
 import About from './pages/About';
 
 interface AuthContextType {
@@ -166,6 +167,7 @@ function AppLayout() {
         <main className="flex-1 overflow-y-auto">
           <Routes>
             <Route path="/"              element={<Dashboard />} />
+            <Route path="/dashboard"     element={<Dashboard />} />
             <Route path="/patients"      element={<Patients />} />
             <Route path="/appointments"  element={<Appointments />} />
             <Route path="/experts"       element={<Experts />} />
@@ -174,7 +176,7 @@ function AppLayout() {
             <Route path="/reports"       element={<Reports />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/settings"      element={<SettingsPage />} />
-            <Route path="*"              element={<Navigate to="/" replace />} />
+            <Route path="*"              element={<Dashboard />} />
           </Routes>
         </main>
       </div>
@@ -215,6 +217,7 @@ function App() {
     setToken(null); setUser(null);
     localStorage.removeItem('accessToken');
     localStorage.removeItem('user');
+    window.location.href = '/home';
   };
 
   const homeRedirect = !token ? '/home' : isPatientUser(user) ? '/patient' : '/';
@@ -226,6 +229,9 @@ function App() {
           {/* Public pages */}
           <Route path="/home"  element={<Home />} />
           <Route path="/about" element={<About />} />
+
+          {/* Public booking flow — works for guests and logged-in patients */}
+          <Route path="/book" element={<PublicBookingPage />} />
 
           {/* Root → home for unauthenticated, dashboard for authenticated */}
           <Route path="/"

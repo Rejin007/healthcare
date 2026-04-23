@@ -75,7 +75,7 @@ const About: React.FC = () => {
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.color='#64748b'}>
               <ChevronLeft className="w-4 h-4" /> Back to Home
             </Link>
-            <Link to="/login" className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white"
+            <Link to="/book" className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white"
               style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', boxShadow: '0 0 16px rgba(6,182,212,0.3)' }}>
               Book a Session <ArrowRight className="w-3.5 h-3.5" />
             </Link>
@@ -334,7 +334,7 @@ const About: React.FC = () => {
                 Whether you're a patient seeking support or a clinician wanting to make a difference — we'd love to have you.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Link to="/login" className="flex items-center gap-2 px-8 py-3.5 rounded-2xl text-sm font-bold text-white transition-all"
+                <Link to="/book" className="flex items-center gap-2 px-8 py-3.5 rounded-2xl text-sm font-bold text-white transition-all"
                   style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', boxShadow: '0 0 24px rgba(6,182,212,0.35)' }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.transform='translateY(-1px)'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.transform='translateY(0)'}>

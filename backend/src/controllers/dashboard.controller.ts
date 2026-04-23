@@ -59,7 +59,7 @@ export const getTopExperts = async (req: AuthRequest, res: Response): Promise<vo
     const limit = parseInt(req.query.limit as string) || 10;
     const result = await pool.query(
       `SELECT e.id, au.full_name, e.bio, e.experience_years,
-        COUNT(DISTINCT a.id) as total_patients
+       COUNT(DISTINCT a.user_id) as total_patients
        FROM experts e
        LEFT JOIN admin_users au ON e.admin_user_id = au.id
        LEFT JOIN appointments a ON e.id = a.expert_id
