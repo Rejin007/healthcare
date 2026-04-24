@@ -147,11 +147,14 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
     if (!user?.id) { setBookedDatesLoading(false); return; }
 
     setBookedDatesLoading(true);
-    // Bug fix: use getAppointmentsByUser which sends 'status' (singular) — the
-    // correct param name — and normalises the response shape automatically.
     appointmentService
-      .getAppointmentsByUser(user.id, expert.id, BOOKED_STATUSES)
-      .then(appts => {
+      .getAll(1, 100, {
+        user_id:   user.id,
+        expert_id: expert.id,
+        statuses:  BOOKED_STATUSES.join(','),
+      })
+      .then(res => {
+        const appts: any[] = res?.data?.appointments ?? res?.appointments ?? [];
         const dates = new Set<string>();
         appts.forEach(a => {
           const d = extractDate(a.start_time);
@@ -160,7 +163,7 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
         setBookedDates(dates);
       })
       .catch(() => {
-        // Non-fatal — proceed without blocking the booking flow
+        // Non-fatal — just proceed without blocking
         setBookedDates(new Set());
       })
       .finally(() => setBookedDatesLoading(false));
@@ -185,8 +188,7 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
 
     appointmentService.getAvailableSlots(expert.id, selectedDate)
       .then(res => {
-        // getAvailableSlots now always resolves to { slots: [...] }
-        const raw: any[] = res?.slots ?? [];
+        const raw: any[] = res?.data?.slots ?? res?.slots ?? [];
         const filtered = raw.filter((s: any) => {
           if (!s.available) return false;
           const sm = s.mode;
