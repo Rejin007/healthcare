@@ -2,17 +2,6 @@ import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
-// ── Public routes that should never trigger a login redirect on 401 ───────────
-const PUBLIC_ROUTE_PREFIXES = [
-  "/appointments/available-slots",
-  "/auth/generate-otp",
-  "/auth/verify-otp",
-  "/experts/public",
-];
-
-const isPublicRoute = (url: string = ""): boolean =>
-  PUBLIC_ROUTE_PREFIXES.some((prefix) => url.includes(prefix));
-
 // ── Cookie reader ─────────────────────────────────────────────────────────────
 const getCookie = (name: string): string | null => {
   const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
@@ -42,7 +31,7 @@ const api = axios.create({
   timeout: 60000,
 });
 
-// ── Attach JWT token automatically (only if present) ──────────────────────────
+// ── Attach JWT token automatically ────────────────────────────────────────────
 api.interceptors.request.use(
   (config) => {
     const token = getToken();
@@ -61,18 +50,12 @@ api.interceptors.request.use(
 );
 
 // ── Handle 401 — clear session and redirect to login ─────────────────────────
-// Skip redirect for public routes so unauthenticated users can still book.
 let isRedirecting = false; // prevent redirect loop
 
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const url: string = error.config?.url ?? "";
-    if (
-      error.response?.status === 401 &&
-      !isRedirecting &&
-      !isPublicRoute(url)
-    ) {
+    if (error.response?.status === 401 && !isRedirecting) {
       isRedirecting = true;
       clearSession();
       // Small delay so any in-flight requests can settle
