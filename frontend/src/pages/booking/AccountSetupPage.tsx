@@ -224,7 +224,7 @@ const AccountSetupPage: React.FC<Props> = ({ onBack, onSuccess }) => {
     const cleaned = phone.replace(/\D/g,'');
     setLoading(true);
     try {
-      await patientService.create({
+      await patientService.publicCreate({
         full_name: fullName.trim(),
         email: email.trim().toLowerCase(),
         phone: cleaned,

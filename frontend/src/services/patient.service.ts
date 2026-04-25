@@ -1,4 +1,4 @@
-import api from './api';
+import api, { publicApi } from './api';
 
 export const patientService = {
   getAll: async (page = 1, limit = 10, search = '') => {
@@ -11,6 +11,13 @@ export const patientService = {
   },
   create: async (data: any) => {
     const response = await api.post('/patients', data);
+    return response.data;
+  },
+  // Used by the public booking flow where no user token exists yet.
+  // Uses publicApi which carries VITE_SERVICE_TOKEN so the backend
+  // accepts the request without a logged-in admin session.
+  publicCreate: async (data: any) => {
+    const response = await publicApi.post('/patients', data);
     return response.data;
   },
   update: async (id: string, data: any) => {

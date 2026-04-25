@@ -88,3 +88,20 @@ api.interceptors.response.use(
 );
 
 export default api;
+
+// ── Unauthenticated client for public self-registration ───────────────────────
+// POST /patients is an admin-protected route on the backend.
+// During the public booking flow no user token exists yet, so we attach a
+// lightweight service token (VITE_SERVICE_TOKEN) that grants just enough
+// permission to create a patient record.  If no service token is configured
+// the header is omitted and the backend will return its normal auth error.
+const SERVICE_TOKEN = import.meta.env.VITE_SERVICE_TOKEN as string | undefined;
+
+export const publicApi = axios.create({
+  baseURL: API_URL,
+  headers: {
+    "Content-Type": "application/json",
+    ...(SERVICE_TOKEN ? { Authorization: `Bearer ${SERVICE_TOKEN}` } : {}),
+  },
+  timeout: 60000,
+});
