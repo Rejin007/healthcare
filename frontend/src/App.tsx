@@ -19,6 +19,8 @@ import PatientDashboard from './pages/PatientDashboard';
 import Home from './pages/Home';
 import PublicBookingPage from './pages/booking/PublicBookingPage';
 import About from './pages/About';
+// BUG FIX: import shared clearSession so logout wipes cookies + sessionStorage too
+import { clearSession } from './services/api';
 
 interface AuthContextType {
   user: any | null;
@@ -200,23 +202,51 @@ function PatientRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// ── Helper: read token from any storage (localStorage → sessionStorage → cookie)
+function readStoredToken(): string | null {
+  const getCookie = (name: string) => {
+    const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+  return (
+    localStorage.getItem('accessToken') ||
+    sessionStorage.getItem('accessToken') ||
+    getCookie('nila_token')
+  );
+}
+
+// BUG FIX: read user from sessionStorage too (session-only logins were ignored)
+function readStoredUser(): any | null {
+  const getCookie = (name: string) => {
+    const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+  const raw =
+    localStorage.getItem('user') ||
+    sessionStorage.getItem('user') ||
+    getCookie('nila_user');
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
 function App() {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('accessToken'));
-  const [user,  setUser]  = useState<any | null>(() => {
-    const stored = localStorage.getItem('user');
-    try { return stored ? JSON.parse(stored) : null; } catch { return null; }
-  });
+  // BUG FIX: was only reading localStorage — session-only tokens (sessionStorage)
+  // and cookie tokens were invisible, forcing re-login on every page refresh.
+  const [token, setToken] = useState<string | null>(() => readStoredToken());
+  const [user,  setUser]  = useState<any | null>(() => readStoredUser());
 
   const login = (newToken: string, newUser: any) => {
-    setToken(newToken); setUser(newUser);
-    localStorage.setItem('accessToken', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
+    setToken(newToken);
+    setUser(newUser);
+    // Actual storage is handled by Login.tsx's saveSession() before calling onLogin()
   };
 
+  // BUG FIX: original logout only cleared localStorage, leaving sessionStorage
+  // tokens and cookies alive — users weren't truly logged out.
   const logout = () => {
-    setToken(null); setUser(null);
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    clearSession(); // wipes localStorage + sessionStorage + cookies
     window.location.href = '/home';
   };
 

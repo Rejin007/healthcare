@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Check, Trash2, RefreshCw, AlertCircle, CheckCircle, Info, X } from 'lucide-react';
+import { Bell, Check, RefreshCw, AlertCircle, CheckCircle, Info } from 'lucide-react';
 import api from '../services/api';
 
 interface Notification {
@@ -14,12 +14,12 @@ interface Notification {
 
 const Notifications: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [loading, setLoading]             = useState(true);
+  const [filter, setFilter]               = useState('all');
 
-  useEffect(() => {
-    loadNotifications();
-  }, [filter]);
+  // BUG FIX: filter change should not re-fetch from server — filtering is client-side.
+  // Only load once on mount; filter state just slices the existing array.
+  useEffect(() => { loadNotifications(); }, []);
 
   const loadNotifications = async () => {
     try {
@@ -36,7 +36,10 @@ const Notifications: React.FC = () => {
   const markAsRead = async (id: string) => {
     try {
       await api.put(`/notifications/${id}/read`);
-      loadNotifications();
+      // BUG FIX: update local state instead of full refetch — avoids flicker
+      setNotifications(prev =>
+        prev.map(n => n.id === id ? { ...n, read_at: new Date().toISOString() } : n)
+      );
     } catch (error) {
       console.error('Failed to mark as read:', error);
     }
@@ -45,7 +48,8 @@ const Notifications: React.FC = () => {
   const markAllAsRead = async () => {
     try {
       await api.put('/notifications/mark-all-read');
-      loadNotifications();
+      const now = new Date().toISOString();
+      setNotifications(prev => prev.map(n => ({ ...n, read_at: n.read_at ?? now })));
     } catch (error) {
       console.error('Failed to mark all as read:', error);
     }
@@ -53,160 +57,136 @@ const Notifications: React.FC = () => {
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'success':
-        return <CheckCircle className="w-5 h-5 text-green-400" />;
-      case 'error':
-        return <AlertCircle className="w-5 h-5 text-red-400" />;
-      case 'warning':
-        return <AlertCircle className="w-5 h-5 text-yellow-400" />;
-      default:
-        return <Info className="w-5 h-5 text-cyan-400" />;
+      case 'success': return <CheckCircle className="w-5 h-5 text-emerald-400" />;
+      case 'error':   return <AlertCircle className="w-5 h-5 text-red-400" />;
+      case 'warning': return <AlertCircle className="w-5 h-5 text-amber-400" />;
+      default:        return <Info className="w-5 h-5 text-cyan-400" />;
     }
   };
 
   const getColor = (type: string) => {
     switch (type) {
-      case 'success':
-        return 'border-green-500/20 bg-green-500/5';
-      case 'error':
-        return 'border-red-500/20 bg-red-500/5';
-      case 'warning':
-        return 'border-yellow-500/20 bg-yellow-500/5';
-      default:
-        return 'border-cyan-500/20 bg-cyan-500/5';
+      case 'success': return 'border-emerald-500/20 bg-emerald-500/5';
+      case 'error':   return 'border-red-500/20 bg-red-500/5';
+      case 'warning': return 'border-amber-500/20 bg-amber-500/5';
+      default:        return 'border-cyan-500/20 bg-cyan-500/5';
     }
   };
 
   const filteredNotifications = notifications.filter(n => {
     if (filter === 'unread') return !n.read_at;
-    if (filter === 'read') return n.read_at;
+    if (filter === 'read')   return !!n.read_at;
     return true;
   });
 
   const unreadCount = notifications.filter(n => !n.read_at).length;
 
+  // BUG FIX: replaced all gray-* classes with slate-* to match the app's design system
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-2">Notifications</h1>
-            <p className="text-gray-400">
-              {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="flex gap-2">
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Notifications</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={loadNotifications}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm text-slate-300 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" /> Refresh
+          </button>
+          {unreadCount > 0 && (
             <button
-              onClick={loadNotifications}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+              onClick={markAllAsRead}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg text-sm font-medium transition-colors"
             >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
+              <Check className="w-4 h-4" /> Mark All Read
             </button>
-            {unreadCount > 0 && (
-              <button
-                onClick={markAllAsRead}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 rounded-lg transition-colors"
-              >
-                <Check className="w-4 h-4" />
-                Mark All Read
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setFilter('all')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
-            filter === 'all'
-              ? 'bg-cyan-500 text-white'
-              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-          }`}
-        >
-          All ({notifications.length})
-        </button>
-        <button
-          onClick={() => setFilter('unread')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
-            filter === 'unread'
-              ? 'bg-cyan-500 text-white'
-              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-          }`}
-        >
-          Unread ({unreadCount})
-        </button>
-        <button
-          onClick={() => setFilter('read')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
-            filter === 'read'
-              ? 'bg-cyan-500 text-white'
-              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-          }`}
-        >
-          Read ({notifications.length - unreadCount})
-        </button>
+      <div className="flex gap-2">
+        {[
+          { key: 'all',    label: `All (${notifications.length})` },
+          { key: 'unread', label: `Unread (${unreadCount})` },
+          { key: 'read',   label: `Read (${notifications.length - unreadCount})` },
+        ].map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              filter === f.key
+                ? 'bg-cyan-500 text-white'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
-      {/* Notifications List */}
-      <div className="bg-[#0d1b2e] border border-gray-800 rounded-xl">
+      {/* List */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
         {loading ? (
           <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500"></div>
+            <div className="animate-spin rounded-full h-10 w-10 border-2 border-slate-700 border-t-cyan-500" />
           </div>
         ) : filteredNotifications.length === 0 ? (
-          <div className="text-center py-12">
-            <Bell className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 text-lg">No notifications found</p>
-            <p className="text-gray-500 text-sm mt-2">
+          <div className="text-center py-16">
+            <Bell className="w-14 h-14 text-slate-700 mx-auto mb-4" />
+            <p className="text-slate-400 text-base font-medium">No notifications found</p>
+            <p className="text-slate-600 text-sm mt-1">
               {filter === 'unread' ? 'All caught up!' : 'Notifications will appear here'}
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-800">
-            {filteredNotifications.map((notification) => (
+          <div className="divide-y divide-slate-800">
+            {filteredNotifications.map(notification => (
               <div
                 key={notification.id}
-                className={`p-6 transition-colors hover:bg-gray-800/30 ${
-                  !notification.read_at ? 'border-l-4 border-cyan-500' : ''
+                className={`p-5 transition-colors hover:bg-slate-800/30 ${
+                  !notification.read_at ? 'border-l-4 border-cyan-500' : 'border-l-4 border-transparent'
                 }`}
               >
                 <div className="flex gap-4">
-                  <div className={`p-3 rounded-lg border ${getColor(notification.type)}`}>
+                  <div className={`p-2.5 rounded-xl border flex-shrink-0 ${getColor(notification.type)}`}>
                     {getIcon(notification.type)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
                       <div className="flex-1">
-                        <p className={`font-medium ${!notification.read_at ? 'text-white' : 'text-gray-300'}`}>
+                        <p className={`text-sm font-medium ${!notification.read_at ? 'text-white' : 'text-slate-300'}`}>
                           {notification.message}
                         </p>
                         {notification.user_name && (
-                          <p className="text-sm text-gray-400 mt-1">
-                            From: {notification.user_name}
-                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">From: {notification.user_name}</p>
                         )}
                       </div>
                       {!notification.read_at && (
                         <button
                           onClick={() => markAsRead(notification.id)}
-                          className="ml-4 p-2 hover:bg-gray-800 rounded-lg transition-colors"
+                          className="flex-shrink-0 p-1.5 hover:bg-slate-700 rounded-lg transition-colors"
                           title="Mark as read"
                         >
                           <Check className="w-4 h-4 text-cyan-400" />
                         </button>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <div className="flex items-center gap-4 text-xs text-slate-500">
                       <span className="flex items-center gap-1">
-                        <Bell className="w-3 h-3" />
-                        {notification.channel}
+                        <Bell className="w-3 h-3" />{notification.channel}
                       </span>
-                      <span>{new Date(notification.created_at).toLocaleString()}</span>
+                      <span>{new Date(notification.created_at).toLocaleString('en-IN')}</span>
                       {notification.read_at && (
-                        <span className="text-green-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Read</span>
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" /> Read
+                        </span>
                       )}
                     </div>
                   </div>

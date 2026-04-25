@@ -64,7 +64,7 @@ const Settings: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'system' && !sysInfo) loadSystemInfo();
-  }, [activeTab]);
+  }, [activeTab, sysInfo]);
 
   const loadProfile = async () => {
     try {

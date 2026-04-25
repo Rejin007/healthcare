@@ -115,6 +115,45 @@ function toISO(timeStr: string, dateStr: string): string {
 // ── STATUSES that count as "booked" (block rebooking) ────────────────────────
 const BOOKED_STATUSES = ['scheduled', 'confirmed', 'in-progress'];
 
+// ── Client-side slot generator ────────────────────────────────────────────────
+// Used as a fallback when the backend /available-slots endpoint requires auth
+// (e.g. guest booking flow). Generates 30-min slots from the expert's schedule.
+function generateSlotsFromAvailability(
+  expert: Expert,
+  dateStr: string,
+  mode: 'online' | 'inperson',
+  slotMinutes = 30
+): any[] {
+  const dow = new Date(dateStr + 'T12:00:00').getDay();
+  const rows = (expert.availability ?? []).filter(a => {
+    if (Number(a.day_of_week) !== dow) return false;
+    if (a.mode === 'not_available') return false;
+    if (!a.mode || a.mode === 'both' || a.mode === mode) return true;
+    return false;
+  });
+  if (rows.length === 0) return [];
+  const slots: any[] = [];
+  for (const row of rows) {
+    const [sh, sm] = row.start_time.split(':').map(Number);
+    const [eh, em] = row.end_time.split(':').map(Number);
+    const startMins = sh * 60 + sm;
+    const endMins   = eh * 60 + em;
+    for (let m = startMins; m + slotMinutes <= endMins; m += slotMinutes) {
+      const h    = Math.floor(m / 60);
+      const min  = m % 60;
+      const eH   = Math.floor((m + slotMinutes) / 60);
+      const eMin = (m + slotMinutes) % 60;
+      slots.push({
+        start_time: `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`,
+        end_time:   `${String(eH).padStart(2,'0')}:${String(eMin).padStart(2,'0')}`,
+        available:  true,
+        mode:       row.mode || mode,
+      });
+    }
+  }
+  return slots;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBack, onNext }) => {
@@ -132,6 +171,8 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
   const [slots,        setSlots]        = useState<any[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError,   setSlotsError]   = useState('');
+  const [slotsRetry,   setSlotsRetry]   = useState(0); // increment to force retry
+  const [slotsOffline,  setSlotsOffline]  = useState(false); // true when showing client-side fallback
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
 
   // ── Set of YYYY-MM-DD dates that the user already has a confirmed appt ──────
@@ -147,14 +188,11 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
     if (!user?.id) { setBookedDatesLoading(false); return; }
 
     setBookedDatesLoading(true);
+    // Bug fix: use getAppointmentsByUser which sends 'status' (singular) — the
+    // correct param name — and normalises the response shape automatically.
     appointmentService
-      .getAll(1, 100, {
-        user_id:   user.id,
-        expert_id: expert.id,
-        statuses:  BOOKED_STATUSES.join(','),
-      })
-      .then(res => {
-        const appts: any[] = res?.data?.appointments ?? res?.appointments ?? [];
+      .getAppointmentsByUser(user.id, expert.id, BOOKED_STATUSES)
+      .then(appts => {
         const dates = new Set<string>();
         appts.forEach(a => {
           const d = extractDate(a.start_time);
@@ -163,7 +201,7 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
         setBookedDates(dates);
       })
       .catch(() => {
-        // Non-fatal — just proceed without blocking
+        // Non-fatal — proceed without blocking the booking flow
         setBookedDates(new Set());
       })
       .finally(() => setBookedDatesLoading(false));
@@ -179,27 +217,64 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
 
   const cells = buildCalendar(calYear, calMonth);
 
-  // Load slots when date changes
-  useEffect(() => {
+  // Load slots when date or mode changes — slotsRetry lets the user force a refetch
+  const loadSlots = () => {
     if (!selectedDate) return;
     setSlotsLoading(true);
     setSlotsError('');
+    setSlotsOffline(false);
     setSelectedSlot(null);
 
     appointmentService.getAvailableSlots(expert.id, selectedDate)
       .then(res => {
-        const raw: any[] = res?.data?.slots ?? res?.slots ?? [];
+        const raw: any[] = res?.slots ?? [];
         const filtered = raw.filter((s: any) => {
-          if (!s.available) return false;
+          // BUG FIX: `available` may be omitted by backend — treat undefined as true
+          // so valid slots aren't silently discarded.
+          if (s.available === false) return false;
           const sm = s.mode;
           if (!sm || sm === 'both') return true;
           return sm === mode;
         });
         setSlots(filtered);
       })
-      .catch(() => setSlotsError('Could not load time slots'))
+      .catch((err: any) => {
+        const status  = err?.response?.status;
+        const message = err?.response?.data?.message;
+
+        // ROOT CAUSE FIX: backend /available-slots requires a JWT even for
+        // public/guest booking. Fall back to generating slots client-side from
+        // the expert's availability schedule so guests can still book.
+        if (status === 401 || message?.toLowerCase().includes('token') || message?.toLowerCase().includes('unauthorized')) {
+          const fallback = generateSlotsFromAvailability(expert, selectedDate!, mode);
+          setSlotsOffline(true);
+          setSlots(fallback);
+          if (fallback.length === 0) {
+            setSlotsError('No availability configured for this date.');
+          }
+          return;
+        }
+
+        setSlotsOffline(false);
+        if (!navigator.onLine) {
+          setSlotsError('No internet connection. Please check your network and retry.');
+        } else if (status === 404) {
+          setSlotsError('Slots endpoint not found — please contact support.');
+        } else if (status >= 500) {
+          setSlotsError('Server error — the backend may be waking up. Please wait a moment and retry.');
+        } else if (message) {
+          setSlotsError(message);
+        } else {
+          setSlotsError('Could not load time slots. Please try again.');
+        }
+      })
       .finally(() => setSlotsLoading(false));
-  }, [selectedDate, expert.id, mode]);
+  };
+
+  useEffect(() => {
+    loadSlots();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, expert.id, mode, slotsRetry]);
 
   const price      = resolvePrice(expert, mode);
   const canGoNext  = !!(selectedDate && selectedSlot);
@@ -544,10 +619,24 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
                 <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading slots…</span>
               </div>
             ) : slotsError ? (
-              <div className="flex items-center gap-2 py-4 px-4 rounded-xl"
-                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span className="text-sm">{slotsError}</span>
+              <div className="rounded-xl overflow-hidden"
+                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                <div className="flex items-start gap-3 p-4">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#f87171' }} />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium" style={{ color: '#f87171' }}>Failed to load slots</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#fca5a5' }}>{slotsError}</p>
+                  </div>
+                </div>
+                <div className="px-4 pb-3">
+                  <button
+                    onClick={() => setSlotsRetry(r => r + 1)}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
+                    style={{ background: 'rgba(239,68,68,0.18)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+                  >
+                    ↻ Retry
+                  </button>
+                </div>
               </div>
             ) : slots.length === 0 ? (
               <div className="py-8 text-center rounded-2xl"
@@ -559,6 +648,17 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
                 </p>
               </div>
             ) : (
+              <>
+                {/* Soft warning shown when slots are generated client-side (guest/no-auth) */}
+                {slotsOffline && (
+                  <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl mb-2"
+                    style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                    <span className="text-amber-400 text-xs mt-0.5">⚡</span>
+                    <p className="text-xs" style={{ color: '#fbbf24' }}>
+                      Showing estimated availability. Actual booked slots will be confirmed after payment.
+                    </p>
+                  </div>
+                )}
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {slots.map((slot, i) => {
                   const label      = formatSlotLabel(slot);
@@ -576,6 +676,7 @@ const SessionDetailsPage: React.FC<SessionDetailsProps> = ({ expert, user, onBac
                   );
                 })}
               </div>
+              </>
             )}
           </div>
         )}
