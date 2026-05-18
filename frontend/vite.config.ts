@@ -7,9 +7,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'https://healthcare-w8iz.onrender.com',
+        target: 'http://localhost:5001',
         changeOrigin: true,
-        secure: true,
+        secure: false,
       }
     }
   }
